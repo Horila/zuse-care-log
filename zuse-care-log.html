@@ -21,6 +21,12 @@
   --bdy:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
   --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,monospace;
 }
+[data-theme="light"]{
+  --bg:#F5F3EF; --surf:#FFFFFF; --surf2:#F0EDE7; --line:#DDD7CC;
+  --tx:#1C2226; --mu:#5C6B72; --dim:#8A96A0;
+  --insulin:#C9791F; --food:#2F9A5C; --walk:#1D84AD; --med:#7A54C4;
+  --treat:#C24F7C; --vet:#1A9E8C; --alert:#D63F3F;
+}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0}
 body{
@@ -46,9 +52,13 @@ header{padding:calc(14px + env(safe-area-inset-top)) 0 6px;position:sticky;top:0
 .hclock{margin-left:auto;text-align:right}
 .hclock b{font-family:var(--mono);font-size:19px;display:block;line-height:1.1}
 .hclock span{font-size:11px;color:var(--dim)}
+.hctrl{display:flex;gap:8px}
+.hbtn{width:34px;height:34px;border-radius:10px;background:var(--surf2);border:1px solid var(--line);display:grid;place-items:center;font-size:16px;color:var(--mu);flex:none}
+.hbtn.on{background:var(--insulin);color:#1C1200;border-color:var(--insulin)}
 
 /* walk bar */
 .walkbar{display:none;align-items:center;justify-content:space-between;gap:10px;background:var(--surf2);border:1px solid var(--line);border-radius:12px;padding:9px 12px;margin-top:9px;font-size:13.5px}
+.playBtn{margin-top:6px;font-size:12.5px;padding:6px 10px;border-radius:8px;background:var(--surf2);border:1px solid var(--line);color:var(--vet)}
 
 /* ring */
 .hero{margin-top:14px;background:var(--surf);border:1px solid var(--line);border-radius:22px;padding:18px;position:relative;overflow:hidden}
@@ -182,6 +192,10 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
     <div>
       <div class="hname">Zuse</div>
       <div class="hsub" id="hsub">Diabetic care log</div>
+    </div>
+    <div class="hctrl">
+      <button class="hbtn" id="btnWake" onclick="toggleWake()" title="Keep screen awake">💡</button>
+      <button class="hbtn" id="btnTheme" onclick="toggleTheme()" title="Toggle theme">🌙</button>
     </div>
     <div class="hclock"><b id="clock">--:--</b><span id="today">—</span></div>
   </div>
@@ -335,7 +349,7 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
 </div>
 
 <nav><div class="nrow" id="nav"></div></nav>
-<div class="scrim" id="scrim" onclick="closeSheet()"></div>
+<div class="scrim" id="scrim" onclick="if(!(vetState&&document.getElementById('vetSheet').classList.contains('on')))closeSheet()"></div>
 
 <div class="sheet" id="sheet">
   <div class="grab"></div>
@@ -358,12 +372,22 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
   <div class="grab"></div>
   <h2>Vet visit</h2>
   <p class="note" style="margin-bottom:14px">Time there: <b class="mono" id="vetDuration">—</b></p>
-  <div class="two">
-    <div class="fld"><label>Weight (kg)</label><input id="vetWeight" type="number" step="0.1" inputmode="decimal"></div>
-    <div class="fld"><label>Glucose (mmol/L)</label><input id="vetGlucose" type="number" step="0.1" inputmode="decimal"></div>
+  <div class="fld">
+    <label>Weight (kg)</label>
+    <div style="display:flex;gap:8px">
+      <input id="vetWeight" type="number" step="0.1" inputmode="decimal">
+      <button class="btn sec" style="width:auto;margin:0;padding:0 16px" onclick="logVetReading('weight')">Log</button>
+    </div>
+  </div>
+  <div class="fld">
+    <label>Glucose (mmol/L)</label>
+    <div style="display:flex;gap:8px">
+      <input id="vetGlucose" type="number" step="0.1" inputmode="decimal">
+      <button class="btn sec" style="width:auto;margin:0;padding:0 16px" onclick="logVetReading('glucose')">Log</button>
+    </div>
   </div>
   <div class="fld"><label>Notes</label><textarea id="vetNotes" rows="3" placeholder="What happened, what changed…"></textarea></div>
-  <button class="btn" onclick="saveVetEntry()">Save visit</button>
+  <button class="btn" onclick="endVet()">End Visit</button>
 </div>
 
 <div class="sheet" id="urineSheet">
@@ -414,6 +438,28 @@ const Store={
   }
 };
 
+/* ---------------- audio blob storage (IndexedDB) ---------------- */
+const AudioStore=(()=>{
+  let dbp=null;
+  function db(){
+    if(dbp)return dbp;
+    dbp=new Promise((res,rej)=>{
+      if(!window.indexedDB){rej('no indexeddb');return}
+      const r=indexedDB.open('zuse-audio',1);
+      r.onupgradeneeded=()=>r.result.createObjectStore('clips');
+      r.onsuccess=()=>res(r.result);
+      r.onerror=()=>rej(r.error);
+    });
+    return dbp;
+  }
+  async function store(mode){return (await db()).transaction('clips',mode).objectStore('clips')}
+  return{
+    async save(id,blob){const s=await store('readwrite');return new Promise((res,rej)=>{const rq=s.put(blob,id);rq.onsuccess=()=>res();rq.onerror=()=>rej(rq.error)})},
+    async get(id){const s=await store('readonly');return new Promise((res,rej)=>{const rq=s.get(id);rq.onsuccess=()=>res(rq.result||null);rq.onerror=()=>rej(rq.error)})},
+    async delete(id){const s=await store('readwrite');return new Promise((res,rej)=>{const rq=s.delete(id);rq.onsuccess=()=>res();rq.onerror=()=>rej(rq.error)})}
+  };
+})();
+
 /* ---------------- types ---------------- */
 const T={
   food:{n:'Canned Food',i:'🥫',c:'--food',u:'cans',d:2},
@@ -446,7 +492,7 @@ const DEF={
   insulin:8, amTime:'11:30', pmTime:'23:30', gap:12, homeLat:null, homeLon:null,
   am:[['food',2],['insulin',8],['samylin',2],['synulox',1],['para',.5],['chicken',30]],
   pm:[['food',2],['insulin',8],['synulox',1],['pred',.5],['para',.5],['chicken',25]],
-  syncUrl:'', syncKey:'', lastSync:''
+  syncUrl:'', syncKey:'', lastSync:'', theme:'', wakeOn:false
 };
 /* map a sheet TYPE string (current or legacy spelling) to our internal key */
 const TYPE_ALIASES={
@@ -560,10 +606,56 @@ async function load(){
 async function save(){await Store.set('zuse_entries',JSON.stringify(entries))}
 async function saveCfg(){await Store.set('zuse_cfg',JSON.stringify(cfg))}
 
+/* ---------------- theme ---------------- */
+function applyTheme(){
+  document.documentElement.setAttribute('data-theme',cfg.theme==='light'?'light':'dark');
+  const b=document.getElementById('btnTheme');
+  b.classList.toggle('on',cfg.theme==='light');
+  b.textContent=cfg.theme==='light'?'☀️':'🌙';
+}
+function toggleTheme(){
+  cfg.theme=cfg.theme==='light'?'dark':'light';
+  saveCfg();applyTheme();
+  if(document.getElementById('v-trend').classList.contains('on'))renderCharts();
+}
+
+/* ---------------- wake lock ---------------- */
+let wakeLock=null;
+async function acquireWake(){
+  if(!('wakeLock' in navigator))return false;
+  try{
+    wakeLock=await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release',()=>{wakeLock=null});
+    return true;
+  }catch(e){return false}
+}
+async function toggleWake(){
+  if(!('wakeLock' in navigator)){toast('Not supported on this device');return}
+  if(cfg.wakeOn){
+    if(wakeLock)await wakeLock.release();
+    wakeLock=null;cfg.wakeOn=false;
+  }else{
+    const ok=await acquireWake();
+    if(!ok){toast('Could not enable wake lock');return}
+    cfg.wakeOn=true;
+  }
+  saveCfg();renderWakeBtn();
+}
+function renderWakeBtn(){
+  const b=document.getElementById('btnWake');
+  if(!('wakeLock' in navigator)){b.style.opacity='.35';return}
+  b.classList.toggle('on',cfg.wakeOn);
+}
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible'&&cfg.wakeOn&&!wakeLock)acquireWake();
+});
+
 /* ---------------- core log ---------------- */
-function add(type,qty,note,when){
+function add(type,qty,note,when,extra){
   const d=when||new Date();
-  entries.push({id:uid(),date:iso(d),time:hm(d),type,qty:qty===''?'':Number(qty),note:note||''});
+  const e={id:uid(),date:iso(d),time:hm(d),type,qty:qty===''?'':Number(qty),note:note||''};
+  if(extra)Object.assign(e,extra);
+  entries.push(e);
   save();renderAll();
 }
 function sortEntries(){entries.sort((a,b)=>(a.date+a.time)<(b.date+b.time)?1:-1)}
@@ -623,15 +715,47 @@ function haversine(lat1,lon1,lat2,lon2){
   const a=Math.sin(dLat/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
-/* ---------------- vet visit stopwatch ---------------- */
-let vetState=null, vetPending=null;
+/* ---------------- vet visit stopwatch + recording ---------------- */
+let vetState=null, mediaRecorder=null, mediaChunks=[], mediaStream=null, vetAudioWarned=false;
 function renderVetBar(){
   const bar=document.getElementById('vetBar');
   if(!vetState){bar.style.display='none';return}
   const start=new Date(`${vetState.date}T${vetState.time}:00`);
   const mins=Math.floor((new Date()-start)/6e4);
-  document.getElementById('vetElapsed').textContent=`${Math.floor(mins/60)}h ${pad(mins%60)}m`;
+  const txt=`${Math.floor(mins/60)}h ${pad(mins%60)}m`;
+  document.getElementById('vetElapsed').textContent=txt;
+  const dEl=document.getElementById('vetDuration'); if(dEl)dEl.textContent=txt;
   bar.style.display='flex';
+}
+async function startVetRecording(){
+  if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){
+    if(!vetAudioWarned){toast('Recording not supported on this device — visit will log without audio');vetAudioWarned=true}
+    return;
+  }
+  try{
+    mediaStream=await navigator.mediaDevices.getUserMedia({audio:true});
+    const mime=['audio/webm;codecs=opus','audio/webm','audio/mp4'].find(m=>MediaRecorder.isTypeSupported(m));
+    mediaChunks=[];
+    mediaRecorder=new MediaRecorder(mediaStream,mime?{mimeType:mime}:undefined);
+    mediaRecorder.ondataavailable=e=>{if(e.data.size)mediaChunks.push(e.data)};
+    mediaRecorder.start();
+  }catch(e){
+    mediaRecorder=null;
+    if(!vetAudioWarned){toast('Microphone unavailable — visit will log without audio');vetAudioWarned=true}
+  }
+}
+function stopVetRecording(){
+  return new Promise(res=>{
+    if(!mediaRecorder){res(null);return}
+    const mr=mediaRecorder;
+    mr.onstop=()=>{
+      const blob=new Blob(mediaChunks,{type:mr.mimeType||'audio/webm'});
+      mediaStream.getTracks().forEach(t=>t.stop());
+      mediaRecorder=null;mediaStream=null;mediaChunks=[];
+      res(blob.size?blob:null);
+    };
+    mr.stop();
+  });
 }
 function startVet(){
   if(vetState)return;
@@ -639,37 +763,40 @@ function startVet(){
   vetState={date:iso(d),time:hm(d)};
   Store.set('zuse_vet',JSON.stringify(vetState));
   renderVetBar();
+  openVetSheet();
+  startVetRecording();
   toast('Vet visit started');
 }
-function endVet(){
-  if(!vetState)return;
-  const start=new Date(`${vetState.date}T${vetState.time}:00`);
-  const mins=Math.max(1,Math.round((new Date()-start)/6e4));
-  vetPending={start,mins};
-  vetState=null;
-  Store.set('zuse_vet','');
-  renderVetBar();
-  openVetSheet();
-}
 function openVetSheet(){
-  document.getElementById('vetDuration').textContent=vetPending?`${Math.floor(vetPending.mins/60)}h ${pad(vetPending.mins%60)}m`:'—';
   document.getElementById('vetWeight').value='';
   document.getElementById('vetGlucose').value='';
   document.getElementById('vetNotes').value='';
+  renderVetBar();
   document.getElementById('scrim').classList.add('on');
   document.getElementById('vetSheet').classList.add('on');
 }
-function saveVetEntry(){
-  const w=document.getElementById('vetWeight').value.trim();
-  const g=document.getElementById('vetGlucose').value.trim();
+function logVetReading(type){
+  const el=document.getElementById(type==='weight'?'vetWeight':'vetGlucose');
+  const v=el.value.trim();
+  if(!v){toast('Enter a value first');return}
+  add(type,+v,'',new Date());
+  el.value='';
+  toast(`${T[type].n} logged`);
+}
+async function endVet(){
+  if(!vetState)return;
+  const start=new Date(`${vetState.date}T${vetState.time}:00`);
+  const mins=Math.max(1,Math.round((new Date()-start)/6e4));
+  const blob=await stopVetRecording();
+  let audioId=null;
+  if(blob){audioId=uid();try{await AudioStore.save(audioId,blob)}catch(e){audioId=null}}
   const n=document.getElementById('vetNotes').value.trim();
-  const when=vetPending?vetPending.start:new Date();
-  const durTxt=vetPending?`${Math.floor(vetPending.mins/60)}h ${pad(vetPending.mins%60)}m`:'';
-  const note=[durTxt&&`Duration: ${durTxt}`,n].filter(Boolean).join(' — ');
-  add('vet','',note,when);
-  if(w)add('weight',+w,'',when);
-  if(g)add('glucose',+g,'',when);
-  vetPending=null;
+  const durTxt=`${Math.floor(mins/60)}h ${pad(mins%60)}m`;
+  const note=[`Duration: ${durTxt}`,n].filter(Boolean).join(' — ');
+  add('vet','',note,start,audioId?{audioId}:null);
+  vetState=null;
+  Store.set('zuse_vet','');
+  renderVetBar();
   closeSheet();
   toast('Vet visit logged');
 }
@@ -780,6 +907,21 @@ function evNode(e,showDel){
   const q=(e.qty===''||e.qty==null)?'':`<b>${e.qty}</b> ${t.u}`;
   d.innerHTML=`<div class="t mono">${fmt12(e.time).replace(' ','')}</div>
     <div class="b"><div class="ttl">${t.i} ${t.n} ${q}</div>${e.note?`<div class="nt">${esc(e.note)}</div>`:''}</div>`;
+  if(e.type==='vet'&&e.audioId){
+    const pb=document.createElement('button');
+    pb.className='playBtn';pb.textContent='▶ Play recording';
+    pb.onclick=async()=>{
+      pb.textContent='Loading…';pb.disabled=true;
+      let blob=null;try{blob=await AudioStore.get(e.audioId)}catch(err){}
+      if(!blob){pb.textContent='Recording unavailable';return}
+      const url=URL.createObjectURL(blob);
+      const audio=document.createElement('audio');
+      audio.controls=true;audio.autoplay=true;audio.src=url;audio.style.cssText='width:100%;margin-top:6px';
+      audio.onended=()=>URL.revokeObjectURL(url);
+      pb.replaceWith(audio);
+    };
+    d.querySelector('.b').appendChild(pb);
+  }
   const x=document.createElement('button');x.className='x';x.textContent='⋯';x.setAttribute('aria-label','Edit entry');
   x.onclick=()=>openLog(e);d.appendChild(x);
   return d;
@@ -899,8 +1041,8 @@ function lineChart(data,color,unit,area){
     ${area?`<polygon points="${P},${H-P} ${pts.join(' ')} ${W-P},${H-P}" fill="url(#g${color.slice(1)})"/>`:''}
     <polyline points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
     ${data.map(p=>`<circle cx="${X(+new Date(p.d)).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="2.4" fill="${color}"/>`).join('')}
-    <text x="${P}" y="${H+12}" fill="#5F7383" font-size="9" font-family="monospace">${dayLabel(data[0].d)}</text>
-    <text x="${W-P}" y="${H+12}" fill="#5F7383" font-size="9" font-family="monospace" text-anchor="end">${last.v}${unit}</text>
+    <text x="${P}" y="${H+12}" fill="${cvar('--dim')}" font-size="9" font-family="monospace">${dayLabel(data[0].d)}</text>
+    <text x="${W-P}" y="${H+12}" fill="${cvar('--dim')}" font-size="9" font-family="monospace" text-anchor="end">${last.v}${unit}</text>
   </svg>`;
 }
 function barChart(data,color,unit){
@@ -909,8 +1051,8 @@ function barChart(data,color,unit){
   const W=320,H=100,max=Math.max(...d.map(p=>p.v))||1,bw=(W/d.length);
   return `<svg viewBox="0 0 ${W} ${H+14}" style="height:114px">
     ${d.map((p,i)=>{const h=Math.max(2,(p.v/max)*(H-8));return `<rect x="${(i*bw+1).toFixed(1)}" y="${(H-h).toFixed(1)}" width="${(bw-2).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${color}" opacity="${.45+.55*(p.v/max)}"/>`}).join('')}
-    <text x="0" y="${H+11}" fill="#5F7383" font-size="9" font-family="monospace">${dayLabel(d[0].d)}</text>
-    <text x="${W}" y="${H+11}" fill="#5F7383" font-size="9" font-family="monospace" text-anchor="end">peak ${max}${unit}</text>
+    <text x="0" y="${H+11}" fill="${cvar('--dim')}" font-size="9" font-family="monospace">${dayLabel(d[0].d)}</text>
+    <text x="${W}" y="${H+11}" fill="${cvar('--dim')}" font-size="9" font-family="monospace" text-anchor="end">peak ${max}${unit}</text>
   </svg>`;
 }
 function renderCharts(){
@@ -1058,6 +1200,7 @@ async function syncNow(){
     const toPush=entries.filter(e=>!sheetKeys.has(`${e.date}|${e.time}|${T[e.type]?T[e.type].n:e.type}`));
     let pushed=0;
     if(toPush.length){
+      // audioId intentionally not included — stays local
       const rows=toPush.slice().sort((a,b)=>(a.date+a.time)<(b.date+b.time)?-1:1).map(e=>({
         date:dmyFromIso(e.date), time:fmt12(e.time), type:T[e.type]?T[e.type].n:e.type,
         qty:formatQtySheet(e.type,e.qty), notes:e.note||''
@@ -1185,9 +1328,13 @@ function tick(){
 }
 (async function(){
   await load();
+  if(!cfg.theme){cfg.theme=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';saveCfg();}
+  applyTheme();renderWakeBtn();if(cfg.wakeOn)acquireWake();
   tileGrid(document.getElementById('quick'),QUICK);
   tileGrid(document.getElementById('allTypes'),Object.keys(T));
-  renderAll();renderWalkBar();renderVetBar();if(walkState)armWalkGeoHint();tick();setInterval(tick,20000);
+  renderAll();renderWalkBar();renderVetBar();if(walkState)armWalkGeoHint();
+  if(vetState){openVetSheet();startVetRecording();toast('Vet visit resumed — recording restarted; anything recorded before the reload was lost.');}
+  tick();setInterval(tick,20000);
   document.getElementById('hsub').textContent=`${entries.length} entries logged`;
 })();
 </script>
