@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#FFB23F">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json">
+<title>Zuse — Care Log</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0E1419; --surf:#161F27; --surf2:#1E2A34; --line:#28363F;
+  --tx:#E9F0F4; --mu:#8AA0AE; --dim:#5F7383;
+  --insulin:#FFB23F; --food:#6FD08C; --walk:#58C2E8; --med:#B58BF0;
+  --treat:#F09AB8; --vet:#7FE3D4; --alert:#FF6B6B;
+  --r:16px;
+  --dsp:'Sora',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --bdy:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,monospace;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg);color:var(--tx);font-family:var(--bdy);
+  font-size:16px;line-height:1.45;overscroll-behavior-y:contain;
+  padding-bottom:calc(80px + env(safe-area-inset-bottom));
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3,.dsp{font-family:var(--dsp);letter-spacing:-.02em;margin:0}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+input,select,textarea{font:inherit;color:var(--tx);background:var(--surf2);border:1px solid var(--line);border-radius:10px;padding:11px 12px;width:100%}
+input:focus,select,textarea:focus,button:focus-visible{outline:2px solid var(--insulin);outline-offset:2px}
+select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--mu) 50%),linear-gradient(135deg,var(--mu) 50%,transparent 50%);background-position:calc(100% - 18px) 51%,calc(100% - 13px) 51%;background-size:5px 5px;background-repeat:no-repeat}
+.wrap{max-width:560px;margin:0 auto;padding:0 16px}
+
+/* header */
+header{padding:calc(14px + env(safe-area-inset-top)) 0 6px;position:sticky;top:0;z-index:40;background:linear-gradient(180deg,var(--bg) 72%,transparent)}
+.hrow{display:flex;align-items:center;gap:11px}
+.pip{width:38px;height:38px;border-radius:12px;background:linear-gradient(150deg,#2C3B47,#16202A);display:grid;place-items:center;font-size:20px;border:1px solid var(--line)}
+.hname{font-family:var(--dsp);font-weight:700;font-size:19px;line-height:1}
+.hsub{font-size:11.5px;color:var(--dim);letter-spacing:.14em;text-transform:uppercase;margin-top:3px}
+.hclock{margin-left:auto;text-align:right}
+.hclock b{font-family:var(--mono);font-size:19px;display:block;line-height:1.1}
+.hclock span{font-size:11px;color:var(--dim)}
+
+/* walk bar */
+.walkbar{display:none;align-items:center;justify-content:space-between;gap:10px;background:var(--surf2);border:1px solid var(--line);border-radius:12px;padding:9px 12px;margin-top:9px;font-size:13.5px}
+
+/* ring */
+.hero{margin-top:14px;background:var(--surf);border:1px solid var(--line);border-radius:22px;padding:18px;position:relative;overflow:hidden}
+.hero:before{content:'';position:absolute;inset:-40% -20% auto;height:200px;background:radial-gradient(closest-side,rgba(255,178,63,.16),transparent);pointer-events:none}
+.ringwrap{display:flex;gap:16px;align-items:center;position:relative}
+.ring{width:132px;height:132px;flex:none;position:relative}
+.ring svg{transform:rotate(-90deg);display:block}
+.ringmid{position:absolute;inset:0;display:grid;place-content:center;text-align:center}
+.ringmid .big{font-family:var(--mono);font-size:26px;font-weight:600;line-height:1}
+.ringmid .lbl{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin-top:5px}
+.hinfo h2{font-size:15px;font-weight:600}
+.hinfo p{margin:5px 0 0;font-size:13.5px;color:var(--mu)}
+.state{display:inline-flex;align-items:center;gap:6px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:4px 9px;border-radius:99px;border:1px solid;margin-bottom:8px}
+.dot{width:6px;height:6px;border-radius:99px;background:currentColor}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.dot.live{animation:pulse 2.4s infinite}
+
+/* checklist */
+.due{margin-top:14px;border-top:1px solid var(--line);padding-top:13px}
+.duehead{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px}
+.duehead h3{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--mu)}
+.duehead em{font-style:normal;font-family:var(--mono);font-size:12px;color:var(--dim)}
+.checks{display:flex;flex-wrap:wrap;gap:7px}
+.chk{display:flex;align-items:center;gap:7px;padding:8px 11px;border-radius:11px;background:var(--surf2);border:1px solid var(--line);font-size:13px;transition:.15s}
+.chk .box{width:15px;height:15px;border-radius:5px;border:1.5px solid var(--dim);flex:none;display:grid;place-items:center;font-size:10px;color:var(--bg)}
+.chk.on{background:rgba(111,208,140,.1);border-color:rgba(111,208,140,.4);color:#BDEBCC}
+.chk.on .box{background:var(--food);border-color:var(--food)}
+.chk:active{transform:scale(.96)}
+.runbtn{margin-top:11px;width:100%;padding:14px;border-radius:13px;background:var(--insulin);color:#191104;font-family:var(--dsp);font-weight:700;font-size:15px}
+.runbtn:active{transform:scale(.98)}
+.runbtn.done{background:var(--surf2);color:var(--mu);border:1px solid var(--line)}
+
+/* sections */
+section{margin-top:24px}
+.shead{display:flex;align-items:center;justify-content:space-between;margin-bottom:11px}
+.shead h2{font-size:13px;letter-spacing:.15em;text-transform:uppercase;color:var(--mu);font-family:var(--bdy);font-weight:600}
+.shead button{font-size:13px;color:var(--insulin);font-weight:500}
+
+/* quick grid */
+.qgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.q{background:var(--surf);border:1px solid var(--line);border-radius:14px;padding:11px 6px 9px;text-align:center;transition:.12s;position:relative;overflow:hidden}
+.q:active{transform:scale(.94)}
+.q .ic{font-size:21px;line-height:1}
+.q .nm{font-size:10.5px;color:var(--mu);margin-top:5px;display:block;line-height:1.2}
+.q:after{content:'';position:absolute;left:0;right:0;top:0;height:2px;background:var(--c,var(--line))}
+
+/* timeline */
+.tl{position:relative;padding-left:20px}
+.tl:before{content:'';position:absolute;left:5px;top:6px;bottom:6px;width:1px;background:var(--line)}
+.ev{display:flex;gap:11px;padding:9px 0;position:relative;align-items:flex-start}
+.ev:before{content:'';position:absolute;left:-18px;top:16px;width:9px;height:9px;border-radius:99px;background:var(--c,var(--dim));box-shadow:0 0 0 3px var(--bg)}
+.ev .t{font-family:var(--mono);font-size:12px;color:var(--dim);width:52px;flex:none;padding-top:2px}
+.ev .b{flex:1;min-width:0}
+.ev .ttl{font-size:14.5px;font-weight:500}
+.ev .ttl b{font-family:var(--mono);font-weight:600;color:var(--c,var(--tx))}
+.ev .nt{font-size:12.5px;color:var(--mu);margin-top:2px;word-wrap:break-word}
+.ev .x{color:var(--dim);font-size:17px;padding:2px 6px;flex:none}
+.empty{text-align:center;padding:30px 16px;color:var(--dim);font-size:14px;background:var(--surf);border-radius:var(--r);border:1px dashed var(--line)}
+
+/* cards / stats */
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.card{background:var(--surf);border:1px solid var(--line);border-radius:var(--r);padding:13px}
+.card .k{font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--dim)}
+.card .v{font-family:var(--mono);font-size:23px;font-weight:600;margin-top:5px;line-height:1}
+.card .v small{font-size:12px;color:var(--mu);font-weight:400}
+.card .d{font-size:11.5px;color:var(--mu);margin-top:4px}
+
+/* history */
+.day{background:var(--surf);border:1px solid var(--line);border-radius:var(--r);margin-bottom:9px;overflow:hidden}
+.dhead{display:flex;align-items:center;gap:10px;padding:13px 14px;width:100%;text-align:left}
+.dhead .dd{font-family:var(--dsp);font-weight:600;font-size:15px}
+.dhead .dm{font-size:11.5px;color:var(--dim);margin-top:1px}
+.tags{margin-left:auto;display:flex;gap:4px;align-items:center}
+.tag{width:7px;height:7px;border-radius:99px;opacity:.85}
+.caret{color:var(--dim);font-size:12px;transition:.2s}
+.day.open .caret{transform:rotate(90deg)}
+.dbody{display:none;padding:0 14px 12px}
+.day.open .dbody{display:block}
+.flag{display:inline-block;font-size:10.5px;padding:2px 7px;border-radius:99px;background:rgba(255,107,107,.14);color:#FFA8A8;margin-left:6px;vertical-align:1px}
+
+/* chart */
+.chart{background:var(--surf);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin-bottom:10px}
+.chart h3{font-size:13px;font-weight:600;font-family:var(--bdy)}
+.chart .sub{font-size:11.5px;color:var(--dim);margin:2px 0 10px}
+.chart svg{width:100%;display:block;overflow:visible}
+
+/* nav */
+nav{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(14,20,25,.93);backdrop-filter:blur(14px);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+.nrow{max-width:560px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr)}
+.nb{padding:10px 0 11px;text-align:center;color:var(--dim);font-size:10px;letter-spacing:.06em}
+.nb .ni{display:block;font-size:19px;margin-bottom:2px;filter:grayscale(1) opacity(.6)}
+.nb.on{color:var(--tx)}
+.nb.on .ni{filter:none}
+
+/* sheet */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:60;opacity:0;pointer-events:none;transition:.2s}
+.scrim.on{opacity:1;pointer-events:auto}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:61;background:var(--surf);border-radius:22px 22px 0 0;border-top:1px solid var(--line);padding:8px 16px calc(20px + env(safe-area-inset-bottom));max-height:88vh;overflow-y:auto;transform:translateY(101%);transition:transform .26s cubic-bezier(.3,.9,.3,1);max-width:560px;margin:0 auto}
+.sheet.on{transform:none}
+.grab{width:38px;height:4px;border-radius:99px;background:var(--line);margin:6px auto 14px}
+.sheet h2{font-size:19px;margin-bottom:14px}
+.fld{margin-bottom:12px}
+.fld label{display:block;font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--dim);margin-bottom:6px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pillrow{display:flex;flex-wrap:wrap;gap:7px}
+.pill{padding:8px 12px;border-radius:99px;background:var(--surf2);border:1px solid var(--line);font-size:13px}
+.pill.on{background:var(--tx);color:var(--bg);border-color:var(--tx);font-weight:600}
+.btn{width:100%;padding:15px;border-radius:13px;background:var(--insulin);color:#191104;font-family:var(--dsp);font-weight:700;font-size:15px;margin-top:6px}
+.btn.sec{background:var(--surf2);color:var(--tx);border:1px solid var(--line)}
+.btn.dgr{background:rgba(255,107,107,.12);color:#FF9A9A;border:1px solid rgba(255,107,107,.3)}
+.btn:active{transform:scale(.98)}
+
+/* toast */
+#toast{position:fixed;left:50%;bottom:calc(88px + env(safe-area-inset-bottom));transform:translate(-50%,14px);z-index:70;background:#F2F7FA;color:#0E1419;padding:11px 17px;border-radius:99px;font-size:13.5px;font-weight:600;opacity:0;transition:.22s;pointer-events:none;box-shadow:0 8px 26px rgba(0,0,0,.5);max-width:88vw;text-align:center}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+
+.view{display:none;animation:fade .22s ease both}
+.view.on{display:block}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.note{font-size:12.5px;color:var(--dim);line-height:1.55}
+hr{border:0;border-top:1px solid var(--line);margin:18px 0}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+<header>
+  <div class="hrow">
+    <div class="pip">🐕</div>
+    <div>
+      <div class="hname">Zuse</div>
+      <div class="hsub" id="hsub">Diabetic care log</div>
+    </div>
+    <div class="hclock"><b id="clock">--:--</b><span id="today">—</span></div>
+  </div>
+  <div class="walkbar" id="walkBar">
+    <span>🦮 Walking — <b class="mono" id="walkElapsed">0h 00m</b></span>
+    <button class="btn" style="width:auto;margin:0;padding:8px 14px;font-size:13px" onclick="endWalk()">End Walk</button>
+  </div>
+</header>
+
+<!-- ============ TODAY ============ -->
+<div class="view on" id="v-today">
+  <div class="hero">
+    <div class="ringwrap">
+      <div class="ring">
+        <svg viewBox="0 0 120 120" width="132" height="132">
+          <circle cx="60" cy="60" r="52" fill="none" stroke="#22303A" stroke-width="9"/>
+          <circle id="arc" cx="60" cy="60" r="52" fill="none" stroke="var(--insulin)" stroke-width="9"
+                  stroke-linecap="round" stroke-dasharray="326.7" stroke-dashoffset="326.7"/>
+        </svg>
+        <div class="ringmid"><div class="big" id="ringBig">--:--</div><div class="lbl" id="ringLbl">since shot</div></div>
+      </div>
+      <div class="hinfo">
+        <div class="state" id="state"><span class="dot live"></span><span id="stateTx">Loading</span></div>
+        <h2 id="hTitle">Insulin</h2>
+        <p id="hSub">Checking the log…</p>
+      </div>
+    </div>
+
+    <div class="due">
+      <div class="duehead"><h3 id="routineName">Routine</h3><em id="routineTime"></em></div>
+      <div class="checks" id="checks"></div>
+      <button class="runbtn" id="runBtn">Log everything left</button>
+    </div>
+  </div>
+
+  <section>
+    <div class="shead"><h2>Quick log</h2><button onclick="openLog()">Custom entry</button></div>
+    <div class="qgrid" id="quick"></div>
+  </section>
+
+  <section>
+    <div class="shead"><h2>Today</h2><span class="note" id="dayCount"></span></div>
+    <div class="tl" id="todayTl"></div>
+  </section>
+
+  <section>
+    <div class="shead"><h2>At a glance</h2></div>
+    <div class="cards" id="glance"></div>
+  </section>
+</div>
+
+<!-- ============ LOG ============ -->
+<div class="view" id="v-log">
+  <section>
+    <div class="shead"><h2>Log an entry</h2></div>
+    <div class="qgrid" id="allTypes"></div>
+  </section>
+  <section>
+    <div class="shead"><h2>Routines</h2></div>
+    <div class="card" style="margin-bottom:9px">
+      <div class="k">Morning · <span id="amT"></span></div>
+      <div class="d" id="amList" style="margin-top:6px"></div>
+      <button class="btn sec" style="margin-top:11px;padding:12px" onclick="runRoutine('am')">Log morning routine</button>
+    </div>
+    <div class="card">
+      <div class="k">Night · <span id="pmT"></span></div>
+      <div class="d" id="pmList" style="margin-top:6px"></div>
+      <button class="btn sec" style="margin-top:11px;padding:12px" onclick="runRoutine('pm')">Log night routine</button>
+    </div>
+  </section>
+</div>
+
+<!-- ============ HISTORY ============ -->
+<div class="view" id="v-hist">
+  <section>
+    <div class="shead"><h2>History</h2><span class="note" id="histCount"></span></div>
+    <div class="fld"><input id="q" placeholder="Search notes, dates, types…" oninput="renderHist()"></div>
+    <div class="pillrow" id="histFilter" style="margin-bottom:14px"></div>
+    <div id="histList"></div>
+    <button class="btn sec" id="moreBtn" style="margin-top:8px" onclick="histLimit+=30;renderHist()">Show older days</button>
+  </section>
+</div>
+
+<!-- ============ TRENDS ============ -->
+<div class="view" id="v-trend">
+  <section>
+    <div class="shead"><h2>Trends</h2><span class="note">since Dec 2025</span></div>
+    <div id="charts"></div>
+  </section>
+</div>
+
+<!-- ============ SETTINGS ============ -->
+<div class="view" id="v-set">
+  <section>
+    <div class="shead"><h2>Doses</h2></div>
+    <div class="card">
+      <div class="fld"><label>Insulin dose (units)</label><input id="sInsulin" type="number" step="0.5" inputmode="decimal"></div>
+      <div class="two">
+        <div class="fld"><label>Morning time</label><input id="sAm" type="time"></div>
+        <div class="fld"><label>Night time</label><input id="sPm" type="time"></div>
+      </div>
+      <div class="fld" style="margin-bottom:0"><label>Hours between shots</label><input id="sGap" type="number" step="0.5" inputmode="decimal"></div>
+    </div>
+  </section>
+  <section>
+    <div class="shead"><h2>Home location</h2></div>
+    <div class="card">
+      <p class="note" id="homeStatus" style="margin-bottom:10px">Not set.</p>
+      <button class="btn sec" onclick="setHomeLocation()">Set home location (here)</button>
+      <p class="note" style="margin-top:10px">Used only for a one-time nudge toast when a walk brings you back within ~150m of home — it never ends the walk for you.</p>
+    </div>
+  </section>
+  <section>
+    <div class="shead"><h2>Morning routine</h2></div>
+    <div class="card" id="editAm"></div>
+  </section>
+  <section>
+    <div class="shead"><h2>Night routine</h2></div>
+    <div class="card" id="editPm"></div>
+  </section>
+  <section>
+    <div class="shead"><h2>Google Sheet sync</h2></div>
+    <div class="card">
+      <div class="fld"><label>Web App URL</label><input id="sSyncUrl" placeholder="https://script.google.com/macros/s/…/exec"></div>
+      <div class="fld" style="margin-bottom:0"><label>Secret key</label><input id="sSyncKey" placeholder="the secret you set in Code.gs"></div>
+    </div>
+    <button class="btn sec" style="margin-top:9px" onclick="saveSyncCfg()">Save sync settings</button>
+    <button class="btn" style="margin-top:9px" id="syncBtn" onclick="syncNow()">Sync with Google Sheet</button>
+    <p class="note" style="margin-top:10px" id="syncStatus">Not synced yet.</p>
+    <p class="note" style="margin-top:10px">Matches entries by date + time + type — anything on one side missing from the other gets copied across. See the setup guide for the Apps Script code to paste into your sheet.</p>
+  </section>
+  <section>
+    <div class="shead"><h2>Your data</h2></div>
+    <button class="btn sec" onclick="exportCSV()">Download CSV</button>
+    <button class="btn sec" style="margin-top:9px" onclick="exportJSON()">Download backup (JSON)</button>
+    <button class="btn sec" style="margin-top:9px" onclick="document.getElementById('imp').click()">Restore from backup</button>
+    <input type="file" id="imp" accept=".json" style="display:none" onchange="importJSON(event)">
+    <button class="btn dgr" style="margin-top:9px" onclick="wipe()">Delete everything</button>
+    <p class="note" style="margin-top:14px">Everything stays on this phone. Nothing is uploaded. Take a backup now and then — clearing your browser data clears the log.</p>
+  </section>
+  <section>
+    <div class="shead"><h2>Install on your phone</h2></div>
+    <p class="note">Open this file in Chrome, then <b>⋮ → Add to Home screen</b>. It opens full screen and works offline.</p>
+  </section>
+  <div style="height:20px"></div>
+</div>
+</div>
+
+<nav><div class="nrow" id="nav"></div></nav>
+<div class="scrim" id="scrim" onclick="closeSheet()"></div>
+
+<div class="sheet" id="sheet">
+  <div class="grab"></div>
+  <h2 id="shTitle">Log entry</h2>
+  <div class="fld"><label>What</label><select id="fType"></select></div>
+  <div class="two">
+    <div class="fld"><label>Amount</label><input id="fQty" type="number" step="0.05" inputmode="decimal"></div>
+    <div class="fld"><label>Unit</label><input id="fUnit"></div>
+  </div>
+  <div class="two">
+    <div class="fld"><label>Date</label><input id="fDate" type="date"></div>
+    <div class="fld"><label>Time</label><input id="fTime" type="time"></div>
+  </div>
+  <div class="fld"><label>Notes</label><textarea id="fNote" rows="2" placeholder="How did he take it? Poop? Mood?"></textarea></div>
+  <button class="btn" onclick="saveEntry()">Save entry</button>
+  <button class="btn dgr" id="delBtn" style="margin-top:9px;display:none" onclick="delEntry()">Delete entry</button>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ---------------- storage (artifact-safe + phone-safe) ---------------- */
+const memBank={};
+const Store={
+  async get(k){
+    try{ if(window.storage&&window.storage.get){const r=await window.storage.get(k); if(r&&r.value!=null)return r.value;} }catch(e){}
+    try{ const v=localStorage.getItem(k); if(v!=null)return v; }catch(e){}
+    return memBank[k]??null;
+  },
+  async set(k,v){
+    memBank[k]=v;
+    try{ if(window.storage&&window.storage.set){await window.storage.set(k,v);} }catch(e){}
+    try{ localStorage.setItem(k,v); }catch(e){}
+  }
+};
+
+/* ---------------- types ---------------- */
+const T={
+  food:{n:'Canned Food',i:'🥫',c:'--food',u:'cans',d:2},
+  insulin:{n:'Insulin',i:'💉',c:'--insulin',u:'units',d:8},
+  samylin:{n:'Samylin',i:'💊',c:'--med',u:'tablets',d:2},
+  pred:{n:'Prednisolone',i:'💊',c:'--med',u:'tablets',d:.5},
+  para:{n:'Paracetamol',i:'💊',c:'--med',u:'tablets',d:.5},
+  synulox:{n:'Synulox 250mg',i:'💊',c:'--med',u:'tablets',d:1},
+  cerenia:{n:'Cerenia 24mg',i:'💊',c:'--med',u:'tablets',d:.75},
+  chicken:{n:'Chicken Slice',i:'🍗',c:'--treat',u:'g',d:30},
+  walk:{n:'Walk',i:'🦮',c:'--walk',u:'min',d:15},
+  dental:{n:'Dental Stick',i:'🦴',c:'--treat',u:'',d:1},
+  treat:{n:'Treats',i:'🍪',c:'--treat',u:'',d:1},
+  carrot:{n:'Carrot',i:'🥕',c:'--treat',u:'',d:.5},
+  dry:{n:'Dry Food',i:'🥣',c:'--food',u:'scoops',d:1},
+  water:{n:'Water',i:'💧',c:'--walk',u:'',d:1},
+  weight:{n:'Weight',i:'⚖️',c:'--vet',u:'kg',d:16.3},
+  glucose:{n:'Glucose',i:'🩸',c:'--vet',u:'mmol/L',d:14},
+  urine:{n:'Urine test',i:'🧪',c:'--vet',u:'',d:1},
+  vet:{n:'Vets Visit',i:'🏥',c:'--vet',u:'',d:1},
+  wormer:{n:'Wormer / Flea',i:'🛡️',c:'--vet',u:'',d:1},
+  poop:{n:'Poop',i:'💩',c:'--mu',u:'',d:1},
+  pee:{n:'Pee accident',i:'💦',c:'--alert',u:'',d:1},
+  sick:{n:'Was sick',i:'🤢',c:'--alert',u:'',d:1},
+  diarrhea:{n:'Diarrhea',i:'⚠️',c:'--alert',u:'',d:1},
+  bath:{n:'Bath',i:'🛁',c:'--walk',u:'',d:1},
+  note:{n:'Note',i:'📝',c:'--mu',u:'',d:''}
+};
+const QUICK=['insulin','food','walk','chicken','pred','para','synulox','samylin','poop','sick'];
+const FLAGS=['sick','diarrhea','pee','vet'];
+
+/* ---------------- defaults ---------------- */
+const DEF={
+  insulin:8, amTime:'11:30', pmTime:'23:30', gap:12, homeLat:null, homeLon:null,
+  am:[['food',2],['insulin',8],['samylin',2],['synulox',1],['para',.5],['chicken',30]],
+  pm:[['food',2],['insulin',8],['synulox',1],['pred',.5],['para',.5],['chicken',25]],
+  syncUrl:'', syncKey:'', lastSync:''
+};
+/* map a sheet TYPE string (current or legacy spelling) to our internal key */
+const TYPE_ALIASES={
+  'canned food':'food','dry food':'dry','insulin':'insulin','samylin':'samylin',
+  'prednisolone':'pred','prednidale':'pred','paracetamol':'para','synulox 250mg':'synulox',
+  'cerenia 24mg':'cerenia','chicken slice':'chicken','chicken slice 🍗':'chicken','walk':'walk',
+  'dental stick':'dental','treats':'treat','carrot':'carrot','carrot 🥕🥕🥕':'carrot','water':'water',
+  'weight':'weight','glucose':'glucose','urine test':'urine','vets visit':'vet',
+  'wormer / flea':'wormer','fleeing':'wormer','fleaing':'wormer','worming':'wormer',
+  'poop':'poop','pee accident':'pee','was sick':'sick','sick':'sick','diarrhea':'diarrhea',
+  'bath':'bath','note':'note'
+};
+let cfg=JSON.parse(JSON.stringify(DEF));
+let entries=[];
+let editId=null, histLimit=30, histType='all';
+
+/* ---------------- seed history (from the diary PDF) ---------------- */
+/* Detailed days: 13–26 July 2026. Plus every vet visit, weight, glucose
+   and health incident logged since 9 Dec 2025. */
+const SEED_DETAIL=`
+13/07|04:53 walk 13|11:30 food 2|11:37 insulin 8|11:40 samylin 2|11:40 pred .5|11:40 chicken 35|23:32 food 2|23:40 insulin 8|23:43 pred .5|23:43 chicken 30|23:53 walk 17
+14/07|11:29 food 2|11:42 insulin 8|11:44 samylin 2|11:44 para .5|11:44 chicken 25|23:30 food 2|23:38 insulin 8|23:42 pred .5|23:42 chicken 20|23:55 note 1 ~front nails clipped, very good boi
+15/07|00:00 walk 13|11:26 food 2|11:34 insulin 8|11:38 samylin 2|11:38 para .5|11:38 chicken 30|19:25 urine 1 ~le neg, sg 1.03, ph 6.5, bl neg, pr +, gl off scale|23:33 food 2|23:45 insulin 8|23:48 pred .5|23:48 para .5|23:48 chicken 17
+16/07|00:03 walk 13|10:40 vet 1 ~16.3 kg|10:40 weight 16.3|11:22 food 2|11:28 insulin 8|11:31 samylin 2|11:31 synulox 1|11:31 para .5|11:31 chicken 30|23:35 food 2|23:45 insulin 8|23:50 pred .5|23:50 synulox 2|23:50 para .5|23:50 chicken 30
+17/07|00:05 walk 13|05:02 walk 10|05:24 chicken 10|10:55 pee 1|11:20 food 2|11:27 insulin 8|11:30 samylin 2|11:30 synulox 1|11:30 para .5|11:30 chicken 34|22:54 walk 15|23:27 food 2|23:33 insulin 8|23:38 synulox 1|23:38 pred .5|23:38 chicken 30
+18/07|11:30 food 2|11:40 insulin 8|11:44 samylin 2|11:44 synulox 1|11:44 para .5|11:44 chicken 27|23:30 food 2|23:39 insulin 8|23:44 pred .5|23:44 synulox 1|23:44 para .5|23:44 chicken 30
+19/07|00:01 walk 13|11:28 food 2|11:40 insulin 8|11:45 samylin 2|11:45 synulox 1|11:45 para .5|11:45 chicken 35|23:24 food 2|23:33 insulin 8|23:36 synulox 2|23:36 pred .5|23:36 para .5|23:36 chicken 25|23:50 walk 13
+20/07|06:41 walk 13|11:27 food 2|11:37 insulin 8|11:41 samylin 2|11:41 synulox 1|11:41 para .5|11:41 chicken 30|23:21 food 2|23:29 insulin 8|23:32 synulox 1|23:32 pred .5|23:32 para .5|23:32 chicken 30|23:39 walk 13
+21/07|11:35 food 2|11:41 insulin 8|11:47 samylin 2|11:47 synulox 1|11:47 para .5|11:47 chicken 30|23:24 food 2|23:30 insulin 8|23:35 synulox 1|23:35 pred .5|23:35 para .5|23:35 chicken 29|23:53 walk 15
+22/07|11:28 sick 1 ~mostly yellow bile|11:34 food 2|11:44 insulin 8 ~fresh bottle|11:48 samylin 2|11:48 synulox 1|11:48 para .5|11:48 chicken 35|23:25 food 2|23:34 insulin 8|23:38 synulox 1|23:38 pred .5|23:38 para .5|23:38 chicken 23|23:56 walk 15
+23/07|11:28 food 2|11:35 insulin 8|11:40 samylin 2|11:40 synulox 1|11:40 para .5|11:40 chicken 30|23:28 food 2|23:35 insulin 8|23:40 synulox 1|23:40 pred .5|23:40 para .5|23:40 chicken 34|23:57 walk 20
+24/07|11:31 food 2|11:43 insulin 8|11:47 samylin 2|11:47 synulox 1|11:47 para .5|11:47 chicken 30|11:50 wormer 2 ~Frontline wormer|11:50 chicken 8|19:44 poop 1 ~wee wee|23:30 food 2|23:41 insulin 8|23:48 synulox .5|23:48 pred .5|23:48 para .5|23:48 chicken 20
+25/07|00:14 walk 15|11:32 food 2|11:39 insulin 8|11:43 samylin 2|11:43 synulox 1|11:43 para .5|11:43 chicken 35|23:30 food 2|23:41 insulin 8|23:55 synulox 1|23:55 pred .5|23:55 para .5|23:55 chicken 35
+26/07|00:07 walk 15|11:29 food 2|11:39 insulin 8.5|11:44 samylin 2|11:44 para .5|11:44 chicken 28|23:08 food 2|23:18 insulin 8|23:25 pred .5|23:25 para .5|23:25 chicken 20|23:46 walk 15
+`;
+const SEED_MED=[
+ ['2025-12-15','17:25','vet',1,'17.8 kg, glucose 10'],['2025-12-15','17:25','weight',17.8,''],['2025-12-15','17:25','glucose',10,''],
+ ['2025-12-22','17:18','vet',1,'Good behaviour. Insulin increased to 9 units BID'],['2025-12-22','17:18','weight',18.2,''],['2025-12-22','17:18','glucose',23,''],
+ ['2025-12-23','00:15','sick',1,'Called VetsNow — probably too much food'],
+ ['2025-12-29','17:10','vet',1,'Insulin increased to 10 units'],['2025-12-29','17:10','weight',18.1,''],['2025-12-29','17:10','glucose',23.3,''],
+ ['2026-01-12','17:30','vet',1,'Freestyle Libre 2 fitted'],['2026-01-12','17:30','weight',18.4,''],['2026-01-12','17:30','glucose',22.8,''],
+ ['2026-01-19','15:00','vet',1,'Urine sample, u40 syringes, prednisolone 5mg'],
+ ['2026-01-25','09:26','sick',1,'Sick on the carpet, then three more times through the day'],
+ ['2026-01-26','13:30','vet',1,'Heart rate 160–200, temp 39, glucose 32. Stayed on fluids until 18:30'],['2026-01-26','13:30','glucose',32,''],
+ ['2026-01-26','05:48','diarrhea',1,'Diarrhea and vomited water with acid'],
+ ['2026-01-27','10:30','vet',1,'Glucose 25, still high but improving. No ketosis in urine'],['2026-01-27','10:30','glucose',25,''],
+ ['2026-01-28','10:37','vet',1,'Glucose 14.9 — very happy with his levels and perkiness'],['2026-01-28','10:37','glucose',14.9,''],
+ ['2026-02-04','17:35','vet',1,'Glucose 21.7, no temperature. Pancreas again. Pain med shot'],['2026-02-04','17:35','glucose',21.7,''],
+ ['2026-02-12','15:00','vet',1,'16.7 kg. Stop amantadine, prednisolone to half a tablet'],['2026-02-12','15:00','weight',16.7,''],
+ ['2026-03-02','16:30','vet',1,'17.5 kg — great improvement'],['2026-03-02','16:30','weight',17.5,''],
+ ['2026-03-09','09:10','vet',1,'Re-take of blood'],
+ ['2026-03-27','17:30','vet',1,'Glucose 14.2, 16.7 kg'],['2026-03-27','17:30','weight',16.7,''],['2026-03-27','17:30','glucose',14.2,''],
+ ['2026-04-09','13:40','vet',1,'Glucose 11.3 at 13:55'],['2026-04-09','13:40','glucose',11.3,''],
+ ['2026-04-09','08:43','diarrhea',1,'Three episodes, then threw up all his food'],
+ ['2026-04-27','09:57','sick',1,'Sick twice, Cerenia given'],
+ ['2026-04-28','12:53','vet',1,'Trying to pee constantly, shaking and panting'],
+ ['2026-04-29','10:10','vet',1,'Synulox 1 week, paracetamol 5 days'],
+ ['2026-05-20','16:45','diarrhea',1,'Four episodes through the evening'],
+ ['2026-05-21','12:25','diarrhea',1,'Roseanne said it was bloody. Promax started'],
+ ['2026-05-22','17:10','vet',1,'16.5 kg, glucose 18.3'],['2026-05-22','17:10','weight',16.5,''],['2026-05-22','17:10','glucose',18.3,''],
+ ['2026-06-02','19:15','sick',1,'Cerenia given'],
+ ['2026-06-22','00:25','sick',1,'Got stressed, thought someone was outside'],
+ ['2026-06-26','00:30','sick',1,'Called the vets'],
+ ['2026-06-27','10:40','vet',1,'16.2 kg, DHP and L4 boosters'],['2026-06-27','10:40','weight',16.2,''],
+ ['2026-07-04','19:26','diarrhea',1,''],
+ ['2026-07-11','12:15','urine',1,'leu neg, ph 6, blood neg, pr ++, gl +++'],
+ ['2026-07-16','10:40','weight',16.3,'']
+];
+
+/* ---------------- helpers ---------------- */
+const pad=n=>String(n).padStart(2,'0');
+const iso=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const hm=d=>`${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const cvar=k=>getComputedStyle(document.documentElement).getPropertyValue(k).trim()||'#8AA0AE';
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+function fmt12(t){const[h,m]=t.split(':').map(Number);const ap=h>=12?'pm':'am';const hh=h%12||12;return `${hh}:${pad(m)} ${ap}`}
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('on');clearTimeout(t._x);t._x=setTimeout(()=>t.classList.remove('on'),1900)}
+function dayLabel(ds){
+  const d=new Date(ds+'T12:00:00'), t=new Date(), y=new Date(Date.now()-864e5);
+  if(ds===iso(t))return 'Today'; if(ds===iso(y))return 'Yesterday';
+  return d.toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'});
+}
+
+/* ---------------- seed build ---------------- */
+function buildSeed(){
+  const out=[];
+  SEED_DETAIL.trim().split('\n').forEach(line=>{
+    const bits=line.split('|'); const[dd,mm]=bits.shift().split('/');
+    bits.forEach(b=>{
+      const[main,note]=b.split('~');
+      const p=main.trim().split(' ');
+      out.push({id:uid(),date:`2026-${mm}-${dd}`,time:p[0],type:p[1],qty:p[2]===undefined?'':parseFloat(p[2]),note:(note||'').trim(),seed:1});
+    });
+  });
+  SEED_MED.forEach(([d,t,ty,q,n])=>out.push({id:uid(),date:d,time:t,type:ty,qty:q,note:n,seed:1}));
+  return out;
+}
+
+/* ---------------- persistence ---------------- */
+async function load(){
+  const raw=await Store.get('zuse_entries');
+  const c=await Store.get('zuse_cfg');
+  if(c){try{cfg=Object.assign(cfg,JSON.parse(c))}catch(e){}}
+  if(raw){try{entries=JSON.parse(raw)}catch(e){entries=[]}}
+  if(!raw){entries=buildSeed();await save()}
+  const w=await Store.get('zuse_walk');
+  if(w){try{walkState=JSON.parse(w)}catch(e){walkState=null}}
+}
+async function save(){await Store.set('zuse_entries',JSON.stringify(entries))}
+async function saveCfg(){await Store.set('zuse_cfg',JSON.stringify(cfg))}
+
+/* ---------------- core log ---------------- */
+function add(type,qty,note,when){
+  const d=when||new Date();
+  entries.push({id:uid(),date:iso(d),time:hm(d),type,qty:qty===''?'':Number(qty),note:note||''});
+  save();renderAll();
+}
+function sortEntries(){entries.sort((a,b)=>(a.date+a.time)<(b.date+b.time)?1:-1)}
+function ts(e){return new Date(`${e.date}T${e.time}:00`)}
+function byDate(ds){return entries.filter(e=>e.date===ds).sort((a,b)=>a.time<b.time?-1:1)}
+function lastOf(type){
+  let best=null;
+  entries.forEach(e=>{if(e.type===type){const t=ts(e);if(!best||t>best)best=t}});
+  return best;
+}
+
+/* ---------------- walk stopwatch ---------------- */
+let walkState=null, walkWatchId=null, walkHinted=false;
+function renderWalkBar(){
+  const bar=document.getElementById('walkBar');
+  if(!walkState){bar.style.display='none';return}
+  const start=new Date(`${walkState.date}T${walkState.time}:00`);
+  const mins=Math.floor((new Date()-start)/6e4);
+  document.getElementById('walkElapsed').textContent=`${Math.floor(mins/60)}h ${pad(mins%60)}m`;
+  bar.style.display='flex';
+}
+function startWalk(){
+  if(walkState)return;
+  const d=new Date();
+  walkState={date:iso(d),time:hm(d)};
+  Store.set('zuse_walk',JSON.stringify(walkState));
+  renderWalkBar();
+  armWalkGeoHint();
+  toast('Walk started');
+}
+function endWalk(){
+  if(!walkState)return;
+  const start=new Date(`${walkState.date}T${walkState.time}:00`);
+  const mins=Math.max(1,Math.round((new Date()-start)/6e4));
+  disarmWalkGeoHint();
+  walkState=null;
+  Store.set('zuse_walk','');
+  add('walk',mins,'',start);
+  renderWalkBar();
+  toast(`Walk logged: ${mins} min`);
+}
+function armWalkGeoHint(){
+  walkHinted=false;
+  if(cfg.homeLat==null||!navigator.geolocation)return;
+  walkWatchId=navigator.geolocation.watchPosition(pos=>{
+    if(walkHinted)return;
+    const dist=haversine(pos.coords.latitude,pos.coords.longitude,cfg.homeLat,cfg.homeLon);
+    if(dist<150){walkHinted=true;toast("Looks like you're home — tap End Walk when ready");}
+  },()=>{},{enableHighAccuracy:false,maximumAge:6e4});
+}
+function disarmWalkGeoHint(){
+  if(walkWatchId!=null){navigator.geolocation.clearWatch(walkWatchId);walkWatchId=null;}
+}
+function haversine(lat1,lon1,lat2,lon2){
+  const R=6371000,toRad=d=>d*Math.PI/180;
+  const dLat=toRad(lat2-lat1),dLon=toRad(lon2-lon1);
+  const a=Math.sin(dLat/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function setHomeLocation(){
+  if(!navigator.geolocation){toast('Location not available on this device');return}
+  navigator.geolocation.getCurrentPosition(pos=>{
+    cfg.homeLat=pos.coords.latitude;cfg.homeLon=pos.coords.longitude;
+    saveCfg();renderSettings();toast('Home location set');
+  },()=>toast('Could not get your location'));
+}
+
+/* ---------------- ring ---------------- */
+function renderRing(){
+  const last=lastOf('insulin'), now=new Date();
+  const arc=document.getElementById('arc'), C=2*Math.PI*52;
+  const st=document.getElementById('state'), stx=document.getElementById('stateTx');
+  if(!last){
+    arc.style.strokeDashoffset=C;
+    document.getElementById('ringBig').textContent='—';
+    document.getElementById('ringLbl').textContent='no shots yet';
+    document.getElementById('hTitle').textContent='No insulin logged';
+    document.getElementById('hSub').textContent='Tap 💉 below to record the first shot.';
+    st.style.color=cvar('--mu');st.style.borderColor=cvar('--line');stx.textContent='Waiting';
+    return;
+  }
+  const mins=(now-last)/6e4, gap=cfg.gap*60, frac=Math.min(mins/gap,1);
+  arc.style.strokeDashoffset=C*(1-frac);
+  const h=Math.floor(mins/60), m=Math.round(mins%60);
+  document.getElementById('ringBig').textContent=`${h}h ${pad(m)}`;
+  document.getElementById('ringLbl').textContent='since last shot';
+  const left=gap-mins;
+  let col,label,sub;
+  if(left>60){col='--food';label='On track';sub=`Next shot in ${Math.floor(left/60)}h ${pad(Math.round(left%60))}m.`}
+  else if(left>0){col='--insulin';label='Due soon';sub=`Next shot in ${Math.round(left)} minutes.`}
+  else if(left>-90){col='--insulin';label='Due now';sub=`Overdue by ${Math.round(-left)} minutes.`}
+  else{col='--alert';label='Overdue';sub=`${Math.floor(-left/60)}h ${pad(Math.round(-left%60))}m past the 12-hour mark.`}
+  arc.style.stroke=cvar(col);
+  st.style.color=cvar(col);st.style.borderColor=cvar(col)+'55';stx.textContent=label;
+  document.getElementById('hTitle').textContent=`Last shot ${pad(last.getHours())}:${pad(last.getMinutes())}`;
+  document.getElementById('hSub').textContent=sub;
+}
+
+/* ---------------- routine checklist ---------------- */
+function currentRoutine(){
+  const now=new Date(), amH=+cfg.amTime.split(':')[0];
+  const h=now.getHours();
+  return (h>=amH-3 && h<amH+8)?'am':'pm';
+}
+function routineDone(which){
+  const list=cfg[which], today=byDate(iso(new Date()));
+  const amH=+cfg.amTime.split(':')[0];
+  const inWin=e=>{const eh=+e.time.split(':')[0];return which==='am'?(eh>=amH-3&&eh<amH+8):(eh>=amH+8||eh<amH-3)};
+  return list.map(([ty])=>today.some(e=>e.type===ty&&inWin(e)));
+}
+function renderChecks(){
+  const w=currentRoutine(), list=cfg[w], done=routineDone(w);
+  document.getElementById('routineName').textContent=w==='am'?'Morning routine':'Night routine';
+  document.getElementById('routineTime').textContent=fmt12(w==='am'?cfg.amTime:cfg.pmTime);
+  const box=document.getElementById('checks');box.innerHTML='';
+  list.forEach(([ty,q],i)=>{
+    const b=document.createElement('button');
+    b.className='chk'+(done[i]?' on':'');
+    b.innerHTML=`<span class="box">${done[i]?'✓':''}</span>${T[ty].i} ${T[ty].n.split(' ')[0]} <span class="mono" style="opacity:.65">${q}</span>`;
+    b.onclick=()=>{if(done[i]){toast(T[ty].n+' already logged')}else{add(ty,q,'');toast(T[ty].n+' logged')}};
+    box.appendChild(b);
+  });
+  const left=done.filter(x=>!x).length;
+  const btn=document.getElementById('runBtn');
+  if(left===0){btn.textContent=(w==='am'?'Morning':'Night')+' routine complete ✓';btn.className='runbtn done';btn.onclick=()=>toast('All done for this round')}
+  else{btn.textContent=`Log the ${left} left`;btn.className='runbtn';btn.onclick=()=>runRoutine(w)}
+}
+function runRoutine(w){
+  const done=routineDone(w);let n=0;
+  cfg[w].forEach(([ty,q],i)=>{if(!done[i]){
+    const d=new Date();d.setMinutes(d.getMinutes()+n);
+    entries.push({id:uid(),date:iso(d),time:hm(d),type:ty,qty:q,note:''});n++;
+  }});
+  if(!n){toast('Nothing left in that routine');return}
+  save();renderAll();toast(`${n} entr${n>1?'ies':'y'} logged`);
+}
+
+/* ---------------- today ---------------- */
+function evNode(e,showDel){
+  const t=T[e.type]||T.note, col=cvar(t.c);
+  const d=document.createElement('div');d.className='ev';d.style.setProperty('--c',col);
+  const q=(e.qty===''||e.qty==null)?'':`<b>${e.qty}</b> ${t.u}`;
+  d.innerHTML=`<div class="t mono">${fmt12(e.time).replace(' ','')}</div>
+    <div class="b"><div class="ttl">${t.i} ${t.n} ${q}</div>${e.note?`<div class="nt">${esc(e.note)}</div>`:''}</div>`;
+  const x=document.createElement('button');x.className='x';x.textContent='⋯';x.setAttribute('aria-label','Edit entry');
+  x.onclick=()=>openLog(e);d.appendChild(x);
+  return d;
+}
+function esc(s){return String(s).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}
+function renderToday(){
+  const ds=iso(new Date()), list=byDate(ds), tl=document.getElementById('todayTl');
+  tl.innerHTML='';
+  if(!list.length){tl.innerHTML='<div class="empty">Nothing logged yet today.<br>Start with the routine above.</div>';}
+  else list.forEach(e=>tl.appendChild(evNode(e)));
+  document.getElementById('dayCount').textContent=list.length?`${list.length} entries`:'';
+}
+function renderGlance(){
+  const ds=iso(new Date()), list=byDate(ds);
+  const sum=t=>list.filter(e=>e.type===t).reduce((a,e)=>a+(+e.qty||0),0);
+  const ins=list.filter(e=>e.type==='insulin');
+  const wk=sum('walk');
+  const lastW=[...entries].filter(e=>e.type==='weight').sort((a,b)=>a.date<b.date?1:-1)[0];
+  const lastG=[...entries].filter(e=>e.type==='glucose').sort((a,b)=>a.date<b.date?1:-1)[0];
+  const g=document.getElementById('glance');
+  g.innerHTML=`
+  <div class="card"><div class="k">Insulin today</div><div class="v" style="color:var(--insulin)">${sum('insulin')||0}<small> units</small></div><div class="d">${ins.length} of 2 shots</div></div>
+  <div class="card"><div class="k">Food today</div><div class="v" style="color:var(--food)">${sum('food')||0}<small> cans</small></div><div class="d">${sum('chicken')?sum('chicken')+'g chicken':'no chicken yet'}</div></div>
+  <div class="card"><div class="k">Walked</div><div class="v" style="color:var(--walk)">${wk}<small> min</small></div><div class="d">${list.filter(e=>e.type==='walk').length} walks</div></div>
+  <div class="card"><div class="k">Last weigh-in</div><div class="v" style="color:var(--vet)">${lastW?lastW.qty:'—'}<small> kg</small></div><div class="d">${lastW?dayLabel(lastW.date):'not recorded'}${lastG?' · glucose '+lastG.qty:''}</div></div>`;
+}
+
+/* ---------------- quick grid ---------------- */
+function tileGrid(el,keys){
+  el.innerHTML='';
+  keys.forEach(k=>{
+    const t=T[k],b=document.createElement('button');b.className='q';
+    b.style.setProperty('--c',cvar(t.c));
+    b.innerHTML=`<span class="ic">${t.i}</span><span class="nm">${t.n}</span>`;
+    b.onclick=()=>{
+      if(k==='walk'){startWalk();return}
+      if(t.d===''||['vet','note','urine','weight','glucose','chicken'].includes(k)){openLog(null,k)}
+      else{add(k,k==='insulin'?cfg.insulin:t.d,'');toast(`${t.n} logged`)}
+    };
+    b.oncontextmenu=ev=>{ev.preventDefault();openLog(null,k)};
+    el.appendChild(b);
+  });
+}
+
+/* ---------------- history ---------------- */
+function renderHist(){
+  const q=(document.getElementById('q').value||'').toLowerCase();
+  const days={};
+  entries.forEach(e=>{
+    if(histType!=='all'&&e.type!==histType)return;
+    if(q){
+      const t=T[e.type]||T.note;
+      const hay=(e.note+' '+t.n+' '+e.date+' '+dayLabel(e.date)).toLowerCase();
+      if(!hay.includes(q))return;
+    }
+    (days[e.date]=days[e.date]||[]).push(e);
+  });
+  const keys=Object.keys(days).sort().reverse();
+  const box=document.getElementById('histList');box.innerHTML='';
+  document.getElementById('histCount').textContent=`${entries.length} entries · ${new Set(entries.map(e=>e.date)).size} days`;
+  if(!keys.length){box.innerHTML='<div class="empty">No entries match that.</div>'}
+  keys.slice(0,histLimit).forEach(k=>{
+    const list=days[k].sort((a,b)=>a.time<b.time?-1:1);
+    const el=document.createElement('div');el.className='day';
+    const ins=list.filter(e=>e.type==='insulin').reduce((a,e)=>a+(+e.qty||0),0);
+    const wk=list.filter(e=>e.type==='walk').reduce((a,e)=>a+(+e.qty||0),0);
+    const flags=[...new Set(list.filter(e=>FLAGS.includes(e.type)).map(e=>e.type))];
+    const head=document.createElement('button');head.className='dhead';
+    head.innerHTML=`<div><div class="dd">${dayLabel(k)}</div><div class="dm mono">${ins?ins+'u insulin':'no insulin'} · ${wk}min walk · ${list.length} entries</div></div>
+      <div class="tags">${flags.map(f=>`<span class="tag" style="background:${cvar(T[f].c)}" title="${T[f].n}"></span>`).join('')}<span class="caret">▶</span></div>`;
+    head.onclick=()=>el.classList.toggle('open');
+    const body=document.createElement('div');body.className='dbody';
+    const tl=document.createElement('div');tl.className='tl';
+    list.forEach(e=>tl.appendChild(evNode(e)));
+    body.appendChild(tl);el.appendChild(head);el.appendChild(body);box.appendChild(el);
+  });
+  document.getElementById('moreBtn').style.display=keys.length>histLimit?'block':'none';
+}
+function renderFilters(){
+  const box=document.getElementById('histFilter');box.innerHTML='';
+  const used=['all',...Object.keys(T).filter(k=>entries.some(e=>e.type===k))];
+  used.forEach(k=>{
+    const b=document.createElement('button');b.className='pill'+(histType===k?' on':'');
+    b.textContent=k==='all'?'Everything':`${T[k].i} ${T[k].n}`;
+    b.onclick=()=>{histType=k;histLimit=30;renderFilters();renderHist()};
+    box.appendChild(b);
+  });
+}
+
+/* ---------------- charts ---------------- */
+function series(type){
+  const m={};
+  entries.filter(e=>e.type===type&&e.qty!=='').forEach(e=>{m[e.date]=+e.qty});
+  return Object.keys(m).sort().map(d=>({d,v:m[d]}));
+}
+function dailySum(type){
+  const m={};
+  entries.filter(e=>e.type===type).forEach(e=>{m[e.date]=(m[e.date]||0)+(+e.qty||0)});
+  return Object.keys(m).sort().map(d=>({d,v:m[d]}));
+}
+function lineChart(data,color,unit,area){
+  if(data.length<2)return '<div class="note">Not enough data yet.</div>';
+  const W=320,H=110,P=6;
+  const xs=data.map(p=>+new Date(p.d)), ys=data.map(p=>p.v);
+  const x0=Math.min(...xs),x1=Math.max(...xs);
+  const y0=Math.min(...ys),y1=Math.max(...ys);
+  const yr=(y1-y0)||1;
+  const X=v=>P+((v-x0)/((x1-x0)||1))*(W-2*P);
+  const Y=v=>H-P-((v-y0)/yr)*(H-2*P-10);
+  const pts=data.map(p=>`${X(+new Date(p.d)).toFixed(1)},${Y(p.v).toFixed(1)}`);
+  const last=data[data.length-1];
+  return `<svg viewBox="0 0 ${W} ${H+16}" preserveAspectRatio="none" style="height:126px">
+    <defs><linearGradient id="g${color.slice(1)}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${color}" stop-opacity=".28"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>
+    ${area?`<polygon points="${P},${H-P} ${pts.join(' ')} ${W-P},${H-P}" fill="url(#g${color.slice(1)})"/>`:''}
+    <polyline points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    ${data.map(p=>`<circle cx="${X(+new Date(p.d)).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="2.4" fill="${color}"/>`).join('')}
+    <text x="${P}" y="${H+12}" fill="#5F7383" font-size="9" font-family="monospace">${dayLabel(data[0].d)}</text>
+    <text x="${W-P}" y="${H+12}" fill="#5F7383" font-size="9" font-family="monospace" text-anchor="end">${last.v}${unit}</text>
+  </svg>`;
+}
+function barChart(data,color,unit){
+  const d=data.slice(-30);
+  if(!d.length)return '<div class="note">Not enough data yet.</div>';
+  const W=320,H=100,max=Math.max(...d.map(p=>p.v))||1,bw=(W/d.length);
+  return `<svg viewBox="0 0 ${W} ${H+14}" style="height:114px">
+    ${d.map((p,i)=>{const h=Math.max(2,(p.v/max)*(H-8));return `<rect x="${(i*bw+1).toFixed(1)}" y="${(H-h).toFixed(1)}" width="${(bw-2).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${color}" opacity="${.45+.55*(p.v/max)}"/>`}).join('')}
+    <text x="0" y="${H+11}" fill="#5F7383" font-size="9" font-family="monospace">${dayLabel(d[0].d)}</text>
+    <text x="${W}" y="${H+11}" fill="#5F7383" font-size="9" font-family="monospace" text-anchor="end">peak ${max}${unit}</text>
+  </svg>`;
+}
+function renderCharts(){
+  const w=series('weight'), g=series('glucose'), ins=dailySum('insulin'), wk=dailySum('walk'), fd=dailySum('food');
+  const inc=entries.filter(e=>['sick','diarrhea','pee'].includes(e.type)).sort((a,b)=>a.date<b.date?1:-1);
+  const c=document.getElementById('charts');
+  const last30=new Date(Date.now()-30*864e5).toISOString().slice(0,10);
+  const inc30=inc.filter(e=>e.date>=last30).length;
+  c.innerHTML=`
+  <div class="chart"><h3>Weight</h3><div class="sub">Every vet weigh-in since December</div>${lineChart(w,cvar('--vet'),' kg',true)}</div>
+  <div class="chart"><h3>Glucose</h3><div class="sub">Readings taken at the vets, mmol/L</div>${lineChart(g,cvar('--alert'),'',true)}</div>
+  <div class="chart"><h3>Insulin per day</h3><div class="sub">Total units across both shots</div>${barChart(ins,cvar('--insulin'),'u')}</div>
+  <div class="chart"><h3>Walking per day</h3><div class="sub">Minutes on his feet</div>${barChart(wk,cvar('--walk'),' min')}</div>
+  <div class="chart"><h3>Food per day</h3><div class="sub">Cans</div>${barChart(fd,cvar('--food'),' cans')}</div>
+  <div class="chart"><h3>Tummy trouble</h3><div class="sub">${inc30} episode${inc30===1?'':'s'} in the last 30 days</div>
+    ${inc.slice(0,12).map(e=>`<div style="display:flex;gap:9px;font-size:13px;padding:5px 0;border-bottom:1px solid var(--line)">
+      <span class="mono" style="color:var(--dim);width:74px;flex:none">${e.date.slice(8)}/${e.date.slice(5,7)}/${e.date.slice(2,4)}</span>
+      <span>${T[e.type].i} ${T[e.type].n}${e.note?` <span style="color:var(--mu)">— ${esc(e.note)}</span>`:''}</span></div>`).join('')||'<div class="note">Nothing logged. Good.</div>'}
+  </div>`;
+}
+
+/* ---------------- settings ---------------- */
+function renderSettings(){
+  document.getElementById('sInsulin').value=cfg.insulin;
+  document.getElementById('sAm').value=cfg.amTime;
+  document.getElementById('sPm').value=cfg.pmTime;
+  document.getElementById('sGap').value=cfg.gap;
+  document.getElementById('homeStatus').textContent=cfg.homeLat!=null?`Set — ${cfg.homeLat.toFixed(4)}, ${cfg.homeLon.toFixed(4)}`:'Not set.';
+  document.getElementById('sSyncUrl').value=cfg.syncUrl||'';
+  document.getElementById('sSyncKey').value=cfg.syncKey||'';
+  document.getElementById('syncStatus').textContent=cfg.lastSync?`Last synced ${new Date(cfg.lastSync).toLocaleString()}`:'Not synced yet.';
+  ['am','pm'].forEach(w=>{
+    const box=document.getElementById(w==='am'?'editAm':'editPm');box.innerHTML='';
+    cfg[w].forEach(([ty,q],i)=>{
+      const row=document.createElement('div');row.style.cssText='display:flex;gap:9px;align-items:center;margin-bottom:9px';
+      row.innerHTML=`<span style="flex:1;font-size:14px">${T[ty].i} ${T[ty].n}</span>`;
+      const inp=document.createElement('input');inp.type='number';inp.step='0.05';inp.value=q;inp.style.width='84px';inp.inputMode='decimal';
+      inp.onchange=()=>{cfg[w][i][1]=+inp.value;saveCfg();renderChecks();renderRoutineCards()};
+      const del=document.createElement('button');del.textContent='✕';del.style.cssText='color:var(--dim);padding:6px 4px';
+      del.onclick=()=>{cfg[w].splice(i,1);saveCfg();renderSettings();renderChecks();renderRoutineCards()};
+      row.appendChild(inp);row.appendChild(del);box.appendChild(row);
+    });
+    const sel=document.createElement('select');
+    sel.innerHTML='<option value="">+ Add something to this routine</option>'+Object.keys(T).map(k=>`<option value="${k}">${T[k].i} ${T[k].n}</option>`).join('');
+    sel.onchange=()=>{if(sel.value){cfg[w].push([sel.value,T[sel.value].d||1]);saveCfg();renderSettings();renderChecks();renderRoutineCards()}};
+    box.appendChild(sel);
+  });
+}
+['sInsulin','sAm','sPm','sGap'].forEach(id=>{
+  document.addEventListener('change',ev=>{
+    if(ev.target.id!==id)return;
+    const v=ev.target.value;
+    if(id==='sInsulin'){cfg.insulin=+v;['am','pm'].forEach(w=>cfg[w].forEach(r=>{if(r[0]==='insulin')r[1]=+v}))}
+    if(id==='sAm')cfg.amTime=v; if(id==='sPm')cfg.pmTime=v; if(id==='sGap')cfg.gap=+v;
+    saveCfg();renderAll();toast('Saved');
+  });
+});
+
+/* ---------------- Google Sheet sync ---------------- */
+function saveSyncCfg(){
+  cfg.syncUrl=document.getElementById('sSyncUrl').value.trim();
+  cfg.syncKey=document.getElementById('sSyncKey').value.trim();
+  saveCfg();toast('Sync settings saved');
+}
+function dmyFromIso(iso){const[y,m,d]=iso.split('-');return `${d}/${m}/${y}`}
+function isoFromDmy(dmy){const[d,m,y]=dmy.split('/');return `${y}/${m.padStart(2,'0')}/${d.padStart(2,'0')}`.replace(/\//g,'-')}
+function to24h(t12){
+  const m=t12.trim().match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/i);
+  if(!m)return null;
+  let h=+m[1]%12; if(/pm/i.test(m[3]))h+=12;
+  return `${pad(h)}:${m[2]}`;
+}
+function typeKeyFromSheetType(str){
+  const k=(str||'').trim().toLowerCase();
+  if(TYPE_ALIASES[k])return TYPE_ALIASES[k];
+  // try matching against our own display names directly
+  const hit=Object.keys(T).find(tk=>T[tk].n.toLowerCase()===k);
+  return hit||null;
+}
+/* sheet quantity cells mix plain numbers ("2") with number+unit text
+   ("8 Units", "5 min") — split the leading number off, and only keep
+   the trailing text if it isn't just a restatement of the unit */
+function extractQty(raw,unit){
+  if(raw===''||raw==null)return{qty:'',extra:''};
+  const s=String(raw).trim();
+  const m=s.match(/^(-?\d+(?:\.\d+)?)(?:\s*(.*))?$/);
+  if(!m)return{qty:'',extra:s};
+  let extra=(m[2]||'').trim();
+  if(extra&&unit&&extra.toLowerCase().replace(/s$/,'')===String(unit).toLowerCase().replace(/s$/,''))extra='';
+  return{qty:Number(m[1]),extra};
+}
+function formatQtySheet(type,qty){
+  if(qty===''||qty==null)return'';
+  const u=T[type]?T[type].u:'';
+  if(u==='units')return`${qty} Units`;
+  if(u==='min')return`${qty} min`;
+  return String(qty);
+}
+async function syncNow(){
+  const url=cfg.syncUrl, key=cfg.syncKey;
+  if(!url||!key){toast('Add your Web App URL and secret first');return}
+  const btn=document.getElementById('syncBtn');
+  btn.textContent='Syncing…';btn.disabled=true;
+  try{
+    const listRes=await fetch(`${url}?action=list&secret=${encodeURIComponent(key)}`);
+    const listData=await listRes.json();
+    if(listData.error){toast('Sync failed: '+listData.error);return}
+    const sheetRows=listData.rows||[];
+
+    // sheet row -> {dateIso,time24,typeKey,qty,notes} ; skip unparseable
+    const sheetParsed=[];
+    const sheetKeys=new Set();
+    sheetRows.forEach(r=>{
+      if(!r.date||!r.time||!r.type)return;
+      const dateIso=isoFromDmy(r.date);
+      const time24=to24h(r.time);
+      if(!time24)return;
+      const typeKey=typeKeyFromSheetType(r.type);
+      const keyType=typeKey?T[typeKey].n:r.type; // key uses canonical display name when known
+      const key=`${dateIso}|${time24}|${keyType}`;
+      sheetKeys.add(key);
+      sheetParsed.push({dateIso,time24,typeKey,rawType:r.type,qty:r.qty,notes:r.notes,key});
+    });
+
+    // local -> key set
+    const localKeys=new Set(entries.map(e=>`${e.date}|${e.time}|${T[e.type]?T[e.type].n:e.type}`));
+
+    // pull: sheet rows missing locally
+    let pulled=0;
+    sheetParsed.forEach(sp=>{
+      if(localKeys.has(sp.key))return;
+      if(sp.typeKey){
+        const{qty,extra}=extractQty(sp.qty,T[sp.typeKey].u);
+        const note=extra?(sp.notes?`${sp.notes} — ${extra}`:extra):(sp.notes||'');
+        entries.push({id:uid(),date:sp.dateIso,time:sp.time24,type:sp.typeKey,qty,note});
+      }else{
+        // unknown type from sheet (old med name etc.) — keep as a note so nothing is lost
+        const noteText=`${sp.rawType}${sp.notes?': '+sp.notes:''}${sp.qty?' ('+sp.qty+')':''}`;
+        entries.push({id:uid(),date:sp.dateIso,time:sp.time24,type:'note',qty:'',note:noteText});
+      }
+      pulled++;
+    });
+
+    // push: local entries missing from sheet
+    const toPush=entries.filter(e=>!sheetKeys.has(`${e.date}|${e.time}|${T[e.type]?T[e.type].n:e.type}`));
+    let pushed=0;
+    if(toPush.length){
+      const rows=toPush.slice().sort((a,b)=>(a.date+a.time)<(b.date+b.time)?-1:1).map(e=>({
+        date:dmyFromIso(e.date), time:fmt12(e.time), type:T[e.type]?T[e.type].n:e.type,
+        qty:formatQtySheet(e.type,e.qty), notes:e.note||''
+      }));
+      const postRes=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+        body:JSON.stringify({secret:key,action:'append',rows})});
+      const postData=await postRes.json();
+      if(postData.error){toast('Push failed: '+postData.error)}
+      else pushed=postData.added||rows.length;
+    }
+
+    if(pulled)await save();
+    cfg.lastSync=new Date().toISOString();await saveCfg();
+    document.getElementById('syncStatus').textContent=`Last synced ${new Date(cfg.lastSync).toLocaleString()}`;
+    renderAll();
+    toast(`Synced — ${pushed} pushed, ${pulled} pulled`);
+  }catch(err){
+    toast('Sync error — check the URL and your connection');
+  }finally{
+    btn.textContent='Sync with Google Sheet';btn.disabled=false;
+  }
+}
+
+function renderRoutineCards(){
+  document.getElementById('amT').textContent=fmt12(cfg.amTime);
+  document.getElementById('pmT').textContent=fmt12(cfg.pmTime);
+  const f=w=>cfg[w].map(([t,q])=>`${T[t].i} ${T[t].n} ${q}${T[t].u?' '+T[t].u:''}`).join(' · ');
+  document.getElementById('amList').textContent=f('am');
+  document.getElementById('pmList').textContent=f('pm');
+}
+
+/* ---------------- sheet ---------------- */
+function openLog(entry,preset){
+  editId=entry?entry.id:null;
+  const sel=document.getElementById('fType');
+  sel.innerHTML=Object.keys(T).map(k=>`<option value="${k}">${T[k].i} ${T[k].n}</option>`).join('');
+  const now=new Date();
+  const k=entry?entry.type:(preset||'food');
+  sel.value=k;
+  document.getElementById('shTitle').textContent=entry?'Edit entry':'Log entry';
+  document.getElementById('fQty').value=entry?entry.qty:(k==='insulin'?cfg.insulin:T[k].d);
+  document.getElementById('fUnit').value=T[k].u;
+  document.getElementById('fDate').value=entry?entry.date:iso(now);
+  document.getElementById('fTime').value=entry?entry.time:hm(now);
+  document.getElementById('fNote').value=entry?entry.note:'';
+  document.getElementById('delBtn').style.display=entry?'block':'none';
+  sel.onchange=()=>{const t=T[sel.value];document.getElementById('fUnit').value=t.u;document.getElementById('fQty').value=sel.value==='insulin'?cfg.insulin:t.d};
+  document.getElementById('scrim').classList.add('on');
+  document.getElementById('sheet').classList.add('on');
+  document.getElementById('fQty').focus();
+  document.getElementById('fQty').select();
+}
+function closeSheet(){document.getElementById('scrim').classList.remove('on');document.getElementById('sheet').classList.remove('on')}
+function saveEntry(){
+  const o={type:document.getElementById('fType').value,
+    qty:document.getElementById('fQty').value===''?'':+document.getElementById('fQty').value,
+    date:document.getElementById('fDate').value,time:document.getElementById('fTime').value,
+    note:document.getElementById('fNote').value.trim()};
+  if(!o.date||!o.time){toast('Add a date and time');return}
+  if(editId){const e=entries.find(x=>x.id===editId);Object.assign(e,o)}
+  else entries.push(Object.assign({id:uid()},o));
+  save();renderAll();closeSheet();toast(editId?'Entry updated':`${T[o.type].n} logged`);
+}
+function delEntry(){
+  entries=entries.filter(e=>e.id!==editId);save();renderAll();closeSheet();toast('Entry deleted');
+}
+
+/* ---------------- data ---------------- */
+function dl(name,text,mime){
+  const b=new Blob([text],{type:mime}),u=URL.createObjectURL(b),a=document.createElement('a');
+  a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);
+}
+function exportCSV(){
+  const rows=[['Date','Time','Type','Quantity','Unit','Notes']];
+  [...entries].sort((a,b)=>(a.date+a.time)<(b.date+b.time)?-1:1)
+    .forEach(e=>rows.push([e.date,e.time,(T[e.type]||T.note).n,e.qty,(T[e.type]||T.note).u,e.note]));
+  dl(`zuse-log-${iso(new Date())}.csv`,rows.map(r=>r.map(c=>`"${String(c??'').replace(/"/g,'""')}"`).join(',')).join('\n'),'text/csv');
+  toast('CSV downloaded');
+}
+function exportJSON(){dl(`zuse-backup-${iso(new Date())}.json`,JSON.stringify({cfg,entries},null,1),'application/json');toast('Backup downloaded')}
+function importJSON(ev){
+  const f=ev.target.files[0];if(!f)return;const r=new FileReader();
+  r.onload=()=>{try{const d=JSON.parse(r.result);
+    if(d.entries){entries=d.entries;if(d.cfg)cfg=Object.assign(cfg,d.cfg);save();saveCfg();renderAll();toast('Backup restored')}
+    else toast("That file doesn't look like a Zuse backup");
+  }catch(e){toast('Could not read that file')}};
+  r.readAsText(f);ev.target.value='';
+}
+function wipe(){
+  if(!confirm('Delete every entry, including the imported diary? This cannot be undone.'))return;
+  entries=[];save();renderAll();toast('Log cleared');
+}
+
+/* ---------------- nav ---------------- */
+const VIEWS=[['today','Today','🏠'],['log','Log','➕'],['hist','History','📖'],['trend','Trends','📈'],['set','Setup','⚙️']];
+function nav(v){
+  VIEWS.forEach(([k])=>{
+    document.getElementById('v-'+k).classList.toggle('on',k===v);
+    document.getElementById('nb-'+k).classList.toggle('on',k===v);
+  });
+  window.scrollTo({top:0,behavior:'instant'});
+  if(v==='hist'){renderFilters();renderHist()}
+  if(v==='trend')renderCharts();
+  if(v==='set')renderSettings();
+}
+document.getElementById('nav').innerHTML=VIEWS.map(([k,n,i])=>
+  `<button class="nb${k==='today'?' on':''}" id="nb-${k}" onclick="nav('${k}')"><span class="ni">${i}</span>${n}</button>`).join('');
+
+/* ---------------- boot ---------------- */
+function renderAll(){
+  sortEntries();renderRing();renderChecks();renderToday();renderGlance();renderRoutineCards();
+  if(document.getElementById('v-hist').classList.contains('on')){renderFilters();renderHist()}
+  if(document.getElementById('v-trend').classList.contains('on'))renderCharts();
+}
+function tick(){
+  const n=new Date();
+  document.getElementById('clock').textContent=hm(n);
+  document.getElementById('today').textContent=n.toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'short'});
+  renderRing();renderWalkBar();
+}
+(async function(){
+  await load();
+  tileGrid(document.getElementById('quick'),QUICK);
+  tileGrid(document.getElementById('allTypes'),Object.keys(T));
+  renderAll();renderWalkBar();if(walkState)armWalkGeoHint();tick();setInterval(tick,20000);
+  document.getElementById('hsub').textContent=`${entries.length} entries logged`;
+})();
+</script>
+</body>
+</html>
