@@ -189,6 +189,10 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
     <span>🦮 Walking — <b class="mono" id="walkElapsed">0h 00m</b></span>
     <button class="btn" style="width:auto;margin:0;padding:8px 14px;font-size:13px" onclick="endWalk()">End Walk</button>
   </div>
+  <div class="walkbar" id="vetBar">
+    <span>🏥 At the vets — <b class="mono" id="vetElapsed">0h 00m</b></span>
+    <button class="btn" style="width:auto;margin:0;padding:8px 14px;font-size:13px" onclick="endVet()">End Visit</button>
+  </div>
 </header>
 
 <!-- ============ TODAY ============ -->
@@ -350,6 +354,48 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
   <button class="btn dgr" id="delBtn" style="margin-top:9px;display:none" onclick="delEntry()">Delete entry</button>
 </div>
 
+<div class="sheet" id="vetSheet">
+  <div class="grab"></div>
+  <h2>Vet visit</h2>
+  <p class="note" style="margin-bottom:14px">Time there: <b class="mono" id="vetDuration">—</b></p>
+  <div class="two">
+    <div class="fld"><label>Weight (kg)</label><input id="vetWeight" type="number" step="0.1" inputmode="decimal"></div>
+    <div class="fld"><label>Glucose (mmol/L)</label><input id="vetGlucose" type="number" step="0.1" inputmode="decimal"></div>
+  </div>
+  <div class="fld"><label>Notes</label><textarea id="vetNotes" rows="3" placeholder="What happened, what changed…"></textarea></div>
+  <button class="btn" onclick="saveVetEntry()">Save visit</button>
+</div>
+
+<div class="sheet" id="urineSheet">
+  <div class="grab"></div>
+  <h2>Urine test</h2>
+  <div class="two">
+    <div class="fld"><label>Date</label><input id="uDate" type="date"></div>
+    <div class="fld"><label>Time</label><input id="uTime" type="time"></div>
+  </div>
+  <div class="two">
+    <div class="fld"><label>Bilirubin</label><input id="uBilirubin"></div>
+    <div class="fld"><label>Urobilinogen</label><input id="uUrobilinogen"></div>
+  </div>
+  <div class="two">
+    <div class="fld"><label>Ketone</label><input id="uKetone"></div>
+    <div class="fld"><label>Glucose</label><input id="uGlucose"></div>
+  </div>
+  <div class="two">
+    <div class="fld"><label>Protein</label><input id="uProtein"></div>
+    <div class="fld"><label>Blood</label><input id="uBlood"></div>
+  </div>
+  <div class="two">
+    <div class="fld"><label>Nitrite</label><input id="uNitrite"></div>
+    <div class="fld"><label>pH</label><input id="uPH"></div>
+  </div>
+  <div class="two">
+    <div class="fld"><label>Specific Gravity</label><input id="uSG"></div>
+    <div class="fld"><label>Leukocytes</label><input id="uLeukocytes"></div>
+  </div>
+  <button class="btn" onclick="saveUrineEntry()">Save urine test</button>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -379,11 +425,7 @@ const T={
   cerenia:{n:'Cerenia 24mg',i:'💊',c:'--med',u:'tablets',d:.75},
   chicken:{n:'Chicken Slice',i:'🍗',c:'--treat',u:'g',d:30},
   walk:{n:'Walk',i:'🦮',c:'--walk',u:'min',d:15},
-  dental:{n:'Dental Stick',i:'🦴',c:'--treat',u:'',d:1},
-  treat:{n:'Treats',i:'🍪',c:'--treat',u:'',d:1},
   carrot:{n:'Carrot',i:'🥕',c:'--treat',u:'',d:.5},
-  dry:{n:'Dry Food',i:'🥣',c:'--food',u:'scoops',d:1},
-  water:{n:'Water',i:'💧',c:'--walk',u:'',d:1},
   weight:{n:'Weight',i:'⚖️',c:'--vet',u:'kg',d:16.3},
   glucose:{n:'Glucose',i:'🩸',c:'--vet',u:'mmol/L',d:14},
   urine:{n:'Urine test',i:'🧪',c:'--vet',u:'',d:1},
@@ -411,7 +453,7 @@ const TYPE_ALIASES={
   'canned food':'food','dry food':'dry','insulin':'insulin','samylin':'samylin',
   'prednisolone':'pred','prednidale':'pred','paracetamol':'para','synulox 250mg':'synulox',
   'cerenia 24mg':'cerenia','chicken slice':'chicken','chicken slice 🍗':'chicken','walk':'walk',
-  'dental stick':'dental','treats':'treat','carrot':'carrot','carrot 🥕🥕🥕':'carrot','water':'water',
+  'carrot':'carrot','carrot 🥕🥕🥕':'carrot',
   'weight':'weight','glucose':'glucose','urine test':'urine','vets visit':'vet',
   'wormer / flea':'wormer','fleeing':'wormer','fleaing':'wormer','worming':'wormer',
   'poop':'poop','pee accident':'pee','was sick':'sick','sick':'sick','diarrhea':'diarrhea',
@@ -512,6 +554,8 @@ async function load(){
   if(!raw){entries=buildSeed();await save()}
   const w=await Store.get('zuse_walk');
   if(w){try{walkState=JSON.parse(w)}catch(e){walkState=null}}
+  const v=await Store.get('zuse_vet');
+  if(v){try{vetState=JSON.parse(v)}catch(e){vetState=null}}
 }
 async function save(){await Store.set('zuse_entries',JSON.stringify(entries))}
 async function saveCfg(){await Store.set('zuse_cfg',JSON.stringify(cfg))}
@@ -579,6 +623,78 @@ function haversine(lat1,lon1,lat2,lon2){
   const a=Math.sin(dLat/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
+/* ---------------- vet visit stopwatch ---------------- */
+let vetState=null, vetPending=null;
+function renderVetBar(){
+  const bar=document.getElementById('vetBar');
+  if(!vetState){bar.style.display='none';return}
+  const start=new Date(`${vetState.date}T${vetState.time}:00`);
+  const mins=Math.floor((new Date()-start)/6e4);
+  document.getElementById('vetElapsed').textContent=`${Math.floor(mins/60)}h ${pad(mins%60)}m`;
+  bar.style.display='flex';
+}
+function startVet(){
+  if(vetState)return;
+  const d=new Date();
+  vetState={date:iso(d),time:hm(d)};
+  Store.set('zuse_vet',JSON.stringify(vetState));
+  renderVetBar();
+  toast('Vet visit started');
+}
+function endVet(){
+  if(!vetState)return;
+  const start=new Date(`${vetState.date}T${vetState.time}:00`);
+  const mins=Math.max(1,Math.round((new Date()-start)/6e4));
+  vetPending={start,mins};
+  vetState=null;
+  Store.set('zuse_vet','');
+  renderVetBar();
+  openVetSheet();
+}
+function openVetSheet(){
+  document.getElementById('vetDuration').textContent=vetPending?`${Math.floor(vetPending.mins/60)}h ${pad(vetPending.mins%60)}m`:'—';
+  document.getElementById('vetWeight').value='';
+  document.getElementById('vetGlucose').value='';
+  document.getElementById('vetNotes').value='';
+  document.getElementById('scrim').classList.add('on');
+  document.getElementById('vetSheet').classList.add('on');
+}
+function saveVetEntry(){
+  const w=document.getElementById('vetWeight').value.trim();
+  const g=document.getElementById('vetGlucose').value.trim();
+  const n=document.getElementById('vetNotes').value.trim();
+  const when=vetPending?vetPending.start:new Date();
+  const durTxt=vetPending?`${Math.floor(vetPending.mins/60)}h ${pad(vetPending.mins%60)}m`:'';
+  const note=[durTxt&&`Duration: ${durTxt}`,n].filter(Boolean).join(' — ');
+  add('vet','',note,when);
+  if(w)add('weight',+w,'',when);
+  if(g)add('glucose',+g,'',when);
+  vetPending=null;
+  closeSheet();
+  toast('Vet visit logged');
+}
+
+/* ---------------- urine test ---------------- */
+const URINE_FIELDS=[['uBilirubin','Bilirubin'],['uUrobilinogen','Urobilinogen'],['uKetone','Ketone'],['uGlucose','Glucose'],['uProtein','Protein'],['uBlood','Blood'],['uNitrite','Nitrite'],['uPH','pH'],['uSG','Specific Gravity'],['uLeukocytes','Leukocytes']];
+function openUrineSheet(){
+  const now=new Date();
+  document.getElementById('uDate').value=iso(now);
+  document.getElementById('uTime').value=hm(now);
+  URINE_FIELDS.forEach(([id])=>document.getElementById(id).value='');
+  document.getElementById('scrim').classList.add('on');
+  document.getElementById('urineSheet').classList.add('on');
+}
+function saveUrineEntry(){
+  const date=document.getElementById('uDate').value, time=document.getElementById('uTime').value;
+  if(!date||!time){toast('Add a date and time');return}
+  const parts=URINE_FIELDS.map(([id,label])=>{
+    const v=document.getElementById(id).value.trim();
+    return v?`${label}: ${v}`:null;
+  }).filter(Boolean);
+  entries.push({id:uid(),date,time,type:'urine',qty:'',note:parts.join(' · ')});
+  save();renderAll();closeSheet();toast('Urine test logged');
+}
+
 function setHomeLocation(){
   if(!navigator.geolocation){toast('Location not available on this device');return}
   navigator.geolocation.getCurrentPosition(pos=>{
@@ -700,7 +816,9 @@ function tileGrid(el,keys){
     b.innerHTML=`<span class="ic">${t.i}</span><span class="nm">${t.n}</span>`;
     b.onclick=()=>{
       if(k==='walk'){startWalk();return}
-      if(t.d===''||['vet','note','urine','weight','glucose','chicken'].includes(k)){openLog(null,k)}
+      if(k==='vet'){if(vetState){toast('Vet visit already in progress')}else{startVet()}return}
+      if(k==='urine'){openUrineSheet();return}
+      if(t.d===''||['note','weight','glucose','chicken'].includes(k)){openLog(null,k)}
       else{add(k,k==='insulin'?cfg.insulin:t.d,'');toast(`${t.n} logged`)}
     };
     b.oncontextmenu=ev=>{ev.preventDefault();openLog(null,k)};
@@ -992,7 +1110,12 @@ function openLog(entry,preset){
   document.getElementById('fQty').focus();
   document.getElementById('fQty').select();
 }
-function closeSheet(){document.getElementById('scrim').classList.remove('on');document.getElementById('sheet').classList.remove('on')}
+function closeSheet(){
+  document.getElementById('scrim').classList.remove('on');
+  document.getElementById('sheet').classList.remove('on');
+  document.getElementById('vetSheet').classList.remove('on');
+  document.getElementById('urineSheet').classList.remove('on');
+}
 function saveEntry(){
   const o={type:document.getElementById('fType').value,
     qty:document.getElementById('fQty').value===''?'':+document.getElementById('fQty').value,
@@ -1058,13 +1181,13 @@ function tick(){
   const n=new Date();
   document.getElementById('clock').textContent=hm(n);
   document.getElementById('today').textContent=n.toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'short'});
-  renderRing();renderWalkBar();
+  renderRing();renderWalkBar();renderVetBar();
 }
 (async function(){
   await load();
   tileGrid(document.getElementById('quick'),QUICK);
   tileGrid(document.getElementById('allTypes'),Object.keys(T));
-  renderAll();renderWalkBar();if(walkState)armWalkGeoHint();tick();setInterval(tick,20000);
+  renderAll();renderWalkBar();renderVetBar();if(walkState)armWalkGeoHint();tick();setInterval(tick,20000);
   document.getElementById('hsub').textContent=`${entries.length} entries logged`;
 })();
 </script>
