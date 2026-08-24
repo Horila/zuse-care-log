@@ -1131,7 +1131,7 @@ function to24h(t12){
 }
 function typeKeyFromSheetType(str){
   const k=(str||'').trim().toLowerCase();
-  if(TYPE_ALIASES[k])return TYPE_ALIASES[k];
+  if(TYPE_ALIASES[k]&&T[TYPE_ALIASES[k]])return TYPE_ALIASES[k];
   // try matching against our own display names directly
   const hit=Object.keys(T).find(tk=>T[tk].n.toLowerCase()===k);
   return hit||null;
