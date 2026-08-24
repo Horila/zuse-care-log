@@ -1222,7 +1222,7 @@ async function syncNow(){
     renderAll();
     toast(`Synced — ${pushed} pushed, ${pulled} pulled`);
   }catch(err){
-    toast('Sync error — check the URL and your connection');
+    toast('Sync error: '+(err&&err.message?err.message:err));
   }finally{
     btn.textContent='Sync with Google Sheet';btn.disabled=false;
   }
