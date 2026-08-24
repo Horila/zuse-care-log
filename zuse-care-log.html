@@ -915,10 +915,14 @@ function evNode(e,showDel){
       let blob=null;try{blob=await AudioStore.get(e.audioId)}catch(err){}
       if(!blob){pb.textContent='Recording unavailable';return}
       const url=URL.createObjectURL(blob);
+      const wrap=document.createElement('div');wrap.style.cssText='margin-top:6px';
       const audio=document.createElement('audio');
-      audio.controls=true;audio.autoplay=true;audio.src=url;audio.style.cssText='width:100%;margin-top:6px';
-      audio.onended=()=>URL.revokeObjectURL(url);
-      pb.replaceWith(audio);
+      audio.controls=true;audio.autoplay=true;audio.src=url;audio.style.cssText='width:100%';
+      const ext=blob.type.includes('mp4')?'m4a':'webm';
+      const dl=document.createElement('a');dl.className='playBtn';dl.style.cssText='display:inline-block;margin-top:6px';
+      dl.textContent='⬇ Download recording';dl.href=url;dl.download=`zuse-vet-${e.date}-${e.time.replace(':','')}.${ext}`;
+      wrap.appendChild(audio);wrap.appendChild(dl);
+      pb.replaceWith(wrap);
     };
     d.querySelector('.b').appendChild(pb);
   }
