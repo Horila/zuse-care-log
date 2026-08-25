@@ -45,6 +45,8 @@ select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,va
 
 /* header */
 header{padding:calc(14px + env(safe-area-inset-top)) 0 6px;position:sticky;top:0;z-index:40;background:linear-gradient(180deg,var(--bg) 72%,transparent)}
+.floatSync{position:fixed;top:calc(58px + env(safe-area-inset-top));right:14px;z-index:50;width:38px;height:38px;border-radius:11px;background:var(--surf2);border:1px solid var(--line);display:grid;place-items:center;font-size:17px;color:var(--mu);box-shadow:0 2px 10px rgba(0,0,0,.25)}
+.floatSync:active{transform:scale(.94)}
 .hrow{display:flex;align-items:center;gap:11px}
 .pip{width:38px;height:38px;border-radius:12px;background:linear-gradient(150deg,#2C3B47,#16202A);display:grid;place-items:center;font-size:20px;border:1px solid var(--line)}
 .hname{font-family:var(--dsp);font-weight:700;font-size:19px;line-height:1}
@@ -209,6 +211,8 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
   </div>
 </header>
 
+<button class="floatSync" id="floatSync" onclick="syncNow()" title="Sync with Google Sheet">🔄</button>
+
 <!-- ============ TODAY ============ -->
 <div class="view on" id="v-today">
   <div class="hero">
@@ -328,6 +332,7 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
     </div>
     <button class="btn sec" style="margin-top:9px" onclick="saveSyncCfg()">Save sync settings</button>
     <button class="btn" style="margin-top:9px" id="syncBtn" onclick="syncNow()">Sync with Google Sheet</button>
+    <a class="btn sec" style="margin-top:9px;display:block;text-align:center" href="https://docs.google.com/spreadsheets/d/1e6t7GPNNgzsLaPqETFxSmcDoJ-VWs0VEwkEWOhzvF4c/edit?usp=sharing" target="_blank" rel="noopener">Open Google Sheet</a>
     <p class="note" style="margin-top:10px" id="syncStatus">Not synced yet.</p>
     <p class="note" style="margin-top:10px">Matches entries by date + time + type — anything on one side missing from the other gets copied across. See the setup guide for the Apps Script code to paste into your sheet.</p>
   </section>
