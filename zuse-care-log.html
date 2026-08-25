@@ -1186,8 +1186,11 @@ async function syncNow(){
       sheetParsed.push({dateIso,time24,typeKey,rawType:r.type,qty:r.qty,notes:r.notes,key});
     });
 
-    // local -> key set
-    const localKeys=new Set(entries.map(e=>`${e.date}|${e.time}|${T[e.type]?T[e.type].n:e.type}`));
+    // local -> key set (srcType preserves the original sheet type text for
+    // rows pulled in as 'note' because their type wasn't recognized, so the
+    // key still matches the sheet on future syncs instead of re-pulling forever)
+    const keyOf=e=>`${e.date}|${e.time}|${e.srcType||(T[e.type]?T[e.type].n:e.type)}`;
+    const localKeys=new Set(entries.map(keyOf));
 
     // pull: sheet rows missing locally
     let pulled=0;
@@ -1200,18 +1203,18 @@ async function syncNow(){
       }else{
         // unknown type from sheet (old med name etc.) — keep as a note so nothing is lost
         const noteText=`${sp.rawType}${sp.notes?': '+sp.notes:''}${sp.qty?' ('+sp.qty+')':''}`;
-        entries.push({id:uid(),date:sp.dateIso,time:sp.time24,type:'note',qty:'',note:noteText});
+        entries.push({id:uid(),date:sp.dateIso,time:sp.time24,type:'note',qty:'',note:noteText,srcType:sp.rawType});
       }
       pulled++;
     });
 
     // push: local entries missing from sheet
-    const toPush=entries.filter(e=>!sheetKeys.has(`${e.date}|${e.time}|${T[e.type]?T[e.type].n:e.type}`));
+    const toPush=entries.filter(e=>!sheetKeys.has(keyOf(e)));
     let pushed=0;
     if(toPush.length){
       // audioId intentionally not included — stays local
       const rows=toPush.slice().sort((a,b)=>(a.date+a.time)<(b.date+b.time)?-1:1).map(e=>({
-        date:dmyFromIso(e.date), time:fmt12(e.time), type:T[e.type]?T[e.type].n:e.type,
+        date:dmyFromIso(e.date), time:fmt12(e.time), type:e.srcType||(T[e.type]?T[e.type].n:e.type),
         qty:formatQtySheet(e.type,e.qty), notes:e.note||''
       }));
       const postRes=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
