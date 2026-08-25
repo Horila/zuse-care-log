@@ -715,8 +715,8 @@ function haversine(lat1,lon1,lat2,lon2){
   const a=Math.sin(dLat/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
-/* ---------------- vet visit stopwatch + recording ---------------- */
-let vetState=null, mediaRecorder=null, mediaChunks=[], mediaStream=null, vetAudioWarned=false;
+/* ---------------- vet visit stopwatch ---------------- */
+let vetState=null;
 function renderVetBar(){
   const bar=document.getElementById('vetBar');
   if(!vetState){bar.style.display='none';return}
@@ -727,36 +727,6 @@ function renderVetBar(){
   const dEl=document.getElementById('vetDuration'); if(dEl)dEl.textContent=txt;
   bar.style.display='flex';
 }
-async function startVetRecording(){
-  if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){
-    if(!vetAudioWarned){toast('Recording not supported on this device — visit will log without audio');vetAudioWarned=true}
-    return;
-  }
-  try{
-    mediaStream=await navigator.mediaDevices.getUserMedia({audio:true});
-    const mime=['audio/webm;codecs=opus','audio/webm','audio/mp4'].find(m=>MediaRecorder.isTypeSupported(m));
-    mediaChunks=[];
-    mediaRecorder=new MediaRecorder(mediaStream,mime?{mimeType:mime}:undefined);
-    mediaRecorder.ondataavailable=e=>{if(e.data.size)mediaChunks.push(e.data)};
-    mediaRecorder.start();
-  }catch(e){
-    mediaRecorder=null;
-    if(!vetAudioWarned){toast('Microphone unavailable — visit will log without audio');vetAudioWarned=true}
-  }
-}
-function stopVetRecording(){
-  return new Promise(res=>{
-    if(!mediaRecorder){res(null);return}
-    const mr=mediaRecorder;
-    mr.onstop=()=>{
-      const blob=new Blob(mediaChunks,{type:mr.mimeType||'audio/webm'});
-      mediaStream.getTracks().forEach(t=>t.stop());
-      mediaRecorder=null;mediaStream=null;mediaChunks=[];
-      res(blob.size?blob:null);
-    };
-    mr.stop();
-  });
-}
 function startVet(){
   if(vetState)return;
   const d=new Date();
@@ -764,7 +734,6 @@ function startVet(){
   Store.set('zuse_vet',JSON.stringify(vetState));
   renderVetBar();
   openVetSheet();
-  startVetRecording();
   toast('Vet visit started');
 }
 function openVetSheet(){
@@ -783,17 +752,14 @@ function logVetReading(type){
   el.value='';
   toast(`${T[type].n} logged`);
 }
-async function endVet(){
+function endVet(){
   if(!vetState)return;
   const start=new Date(`${vetState.date}T${vetState.time}:00`);
   const mins=Math.max(1,Math.round((new Date()-start)/6e4));
-  const blob=await stopVetRecording();
-  let audioId=null;
-  if(blob){audioId=uid();try{await AudioStore.save(audioId,blob)}catch(e){audioId=null}}
   const n=document.getElementById('vetNotes').value.trim();
   const durTxt=`${Math.floor(mins/60)}h ${pad(mins%60)}m`;
   const note=[`Duration: ${durTxt}`,n].filter(Boolean).join(' — ');
-  add('vet','',note,start,audioId?{audioId}:null);
+  add('vet','',note,start);
   vetState=null;
   Store.set('zuse_vet','');
   renderVetBar();
@@ -1345,7 +1311,7 @@ function tick(){
   tileGrid(document.getElementById('quick'),QUICK);
   tileGrid(document.getElementById('allTypes'),Object.keys(T));
   renderAll();renderWalkBar();renderVetBar();if(walkState)armWalkGeoHint();
-  if(vetState){openVetSheet();startVetRecording();toast('Vet visit resumed — recording restarted; anything recorded before the reload was lost.');}
+  if(vetState){openVetSheet();toast('Vet visit resumed');}
   tick();setInterval(tick,20000);
   document.getElementById('hsub').textContent=`${entries.length} entries logged`;
 })();
