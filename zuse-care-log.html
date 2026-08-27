@@ -313,7 +313,7 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
     <div class="card">
       <p class="note" id="homeStatus" style="margin-bottom:10px">Not set.</p>
       <button class="btn sec" onclick="setHomeLocation()">Set home location (here)</button>
-      <p class="note" style="margin-top:10px">Used only for a one-time nudge toast when a walk brings you back within ~150m of home — it never ends the walk for you.</p>
+      <p class="note" style="margin-top:10px">A walk auto-ends once you are back within 2m of this pin, but only after the first 5 minutes have passed. GPS cannot resolve 2m on its own, so a reading counts when its error circle reaches the pin; readings worse than &plusmn;20m are ignored and only show the old nudge instead.</p>
     </div>
   </section>
   <section>
@@ -496,7 +496,7 @@ const FLAGS=['sick','diarrhea','pee','vet'];
 
 /* ---------------- defaults ---------------- */
 const DEF={
-  insulin:8, amTime:'11:30', pmTime:'23:30', gap:12, homeLat:null, homeLon:null,
+  insulin:8, amTime:'11:30', pmTime:'23:30', gap:12, homeLat:null, homeLon:null, homeAcc:null,
   am:[['food',2],['insulin',8],['samylin',2],['synulox',1],['para',.5],['chicken',30]],
   pm:[['food',2],['insulin',8],['synulox',1],['pred',.5],['para',.5],['chicken',25]],
   syncUrl:'', syncKey:'', lastSync:'', theme:'', wakeOn:false
@@ -675,6 +675,7 @@ function lastOf(type){
 }
 
 /* ---------------- walk stopwatch ---------------- */
+const HOME_RADIUS=2, WALK_GRACE_MS=3e5, MAX_FIX_ACC=20;
 let walkState=null, walkWatchId=null, walkHinted=false;
 function renderWalkBar(){
   const bar=document.getElementById('walkBar');
@@ -690,30 +691,52 @@ function startWalk(){
   walkState={date:iso(d),time:hm(d)};
   Store.set('zuse_walk',JSON.stringify(walkState));
   renderWalkBar();
-  armWalkGeoHint();
+  armWalkAutoEnd();
   toast('Walk started');
 }
 function endWalk(){
   if(!walkState)return;
   const start=new Date(`${walkState.date}T${walkState.time}:00`);
   const mins=Math.max(1,Math.round((new Date()-start)/6e4));
-  disarmWalkGeoHint();
+  disarmWalkAutoEnd();
   walkState=null;
   Store.set('zuse_walk','');
   add('walk',mins,'',start);
   renderWalkBar();
   toast(`Walk logged: ${mins} min`);
 }
-function armWalkGeoHint(){
+// A GPS fix cannot resolve HOME_RADIUS on its own, so the effective perimeter is
+// HOME_RADIUS + the fix's own error. MAX_FIX_ACC caps that worst case at 22m and
+// keeps wifi/cell fixes from ending a walk halfway across the neighbourhood.
+function shouldAutoEnd(distM,accM,elapsedMs){
+  return elapsedMs>=WALK_GRACE_MS && accM<=MAX_FIX_ACC && distM-accM<=HOME_RADIUS;
+}
+(function(){
+  const A=(c,m)=>console.assert(c,'shouldAutoEnd: '+m);
+  A(!shouldAutoEnd(0,5,6e4),'inside grace period keeps walking');
+  A(!shouldAutoEnd(400,10,6e5),'far from home keeps walking');
+  A(shouldAutoEnd(8,10,6e5),'near home past grace ends walk');
+  A(!shouldAutoEnd(8,200,6e5),'unusable fix never ends walk');
+})();
+function armWalkAutoEnd(){
+  disarmWalkAutoEnd();
   walkHinted=false;
   if(cfg.homeLat==null||!navigator.geolocation)return;
-  walkWatchId=navigator.geolocation.watchPosition(pos=>{
-    if(walkHinted)return;
+  const id=navigator.geolocation.watchPosition(pos=>{
+    if(!walkState)return;
+    const elapsed=new Date()-new Date(`${walkState.date}T${walkState.time}:00`);
     const dist=haversine(pos.coords.latitude,pos.coords.longitude,cfg.homeLat,cfg.homeLon);
-    if(dist<150){walkHinted=true;toast("Looks like you're home — tap End Walk when ready");}
-  },()=>{},{enableHighAccuracy:false,maximumAge:6e4});
+    const acc=pos.coords.accuracy;
+    if(shouldAutoEnd(dist,acc,elapsed)){endWalk();return}
+    // Fix too fuzzy to trust — fall back to the old nudge, once.
+    if(!walkHinted&&elapsed>=WALK_GRACE_MS&&acc>MAX_FIX_ACC&&dist-acc<=HOME_RADIUS){
+      walkHinted=true;toast("Looks like you're home — tap End Walk when ready");
+    }
+  },()=>{},{enableHighAccuracy:true,maximumAge:0});
+  // A cached first fix can end the walk before this assignment lands — don't leak the watch.
+  if(walkState)walkWatchId=id; else navigator.geolocation.clearWatch(id);
 }
-function disarmWalkGeoHint(){
+function disarmWalkAutoEnd(){
   if(walkWatchId!=null){navigator.geolocation.clearWatch(walkWatchId);walkWatchId=null;}
 }
 function haversine(lat1,lon1,lat2,lon2){
@@ -795,12 +818,24 @@ function saveUrineEntry(){
   save();renderAll();closeSheet();toast('Urine test logged');
 }
 
+// The first GPS fix is usually the worst one, so sample for up to 10s and keep
+// the tightest reading. Matters a lot when the perimeter is only 2m wide.
 function setHomeLocation(){
   if(!navigator.geolocation){toast('Location not available on this device');return}
-  navigator.geolocation.getCurrentPosition(pos=>{
-    cfg.homeLat=pos.coords.latitude;cfg.homeLon=pos.coords.longitude;
-    saveCfg();renderSettings();toast('Home location set');
-  },()=>toast('Could not get your location'));
+  toast('Getting a fix — stand still by the door');
+  let best=null, closed=false;
+  const id=navigator.geolocation.watchPosition(pos=>{
+    if(!best||pos.coords.accuracy<best.accuracy)best=pos.coords;
+    if(best.accuracy<=5)done();
+  },()=>{if(!best)done()},{enableHighAccuracy:true,maximumAge:0});
+  const timer=setTimeout(done,1e4);
+  function done(){
+    if(closed)return; closed=true;
+    clearTimeout(timer);navigator.geolocation.clearWatch(id);
+    if(!best){toast('Could not get your location');return}
+    cfg.homeLat=best.latitude;cfg.homeLon=best.longitude;cfg.homeAcc=Math.round(best.accuracy);
+    saveCfg();renderSettings();toast(`Home set — ±${cfg.homeAcc}m`);
+  }
 }
 
 /* ---------------- ring ---------------- */
@@ -1057,7 +1092,7 @@ function renderSettings(){
   document.getElementById('sAm').value=cfg.amTime;
   document.getElementById('sPm').value=cfg.pmTime;
   document.getElementById('sGap').value=cfg.gap;
-  document.getElementById('homeStatus').textContent=cfg.homeLat!=null?`Set — ${cfg.homeLat.toFixed(4)}, ${cfg.homeLon.toFixed(4)}`:'Not set.';
+  document.getElementById('homeStatus').textContent=cfg.homeLat!=null?`Set — ${cfg.homeLat.toFixed(5)}, ${cfg.homeLon.toFixed(5)} ${cfg.homeAcc!=null?`(±${cfg.homeAcc}m)`:'(accuracy unknown — re-set it)'}`:'Not set.';
   document.getElementById('sSyncUrl').value=cfg.syncUrl||'';
   document.getElementById('sSyncKey').value=cfg.syncKey||'';
   document.getElementById('syncStatus').textContent=cfg.lastSync?`Last synced ${new Date(cfg.lastSync).toLocaleString()}`:'Not synced yet.';
@@ -1317,7 +1352,7 @@ function tick(){
   applyTheme();renderWakeBtn();if(cfg.wakeOn)acquireWake();
   tileGrid(document.getElementById('quick'),QUICK);
   tileGrid(document.getElementById('allTypes'),Object.keys(T));
-  renderAll();renderWalkBar();renderVetBar();if(walkState)armWalkGeoHint();
+  renderAll();renderWalkBar();renderVetBar();if(walkState)armWalkAutoEnd();
   if(vetState){openVetSheet();toast('Vet visit resumed');}
   tick();setInterval(tick,20000);
   document.getElementById('hsub').textContent=`${entries.length} entries logged`;
