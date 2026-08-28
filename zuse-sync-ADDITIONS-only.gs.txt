@@ -414,7 +414,9 @@ function askGemini_(prompt) {
     contentType: 'application/json',
     payload: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.3, maxOutputTokens: 1200 }
+      // Deliberately no output cap: a busy month is a long write-up, and a
+      // limit here truncates it mid-sentence rather than failing loudly.
+      generationConfig: { temperature: 0.3 }
     }),
     muteHttpExceptions: true
   };
@@ -429,7 +431,12 @@ function askGemini_(prompt) {
       const data = JSON.parse(text);
       const cand = data && data.candidates && data.candidates[0];
       const parts = cand && cand.content && cand.content.parts;
-      if (!parts || !parts.length) throw new Error('Gemini returned no text — ' + text.slice(0, 300));
+      // With no cap, an empty answer means the model spent its whole budget
+      // thinking. Name the reason so the failure email says why.
+      if (!parts || !parts.length) {
+        throw new Error('Gemini returned no text (finishReason ' +
+          ((cand && cand.finishReason) || 'none') + ') — ' + text.slice(0, 300));
+      }
       const out = parts.map(function (p) { return p.text || ''; }).join('').trim();
       if (!out) throw new Error('Gemini returned an empty message');
       return out;

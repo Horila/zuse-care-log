@@ -392,6 +392,19 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   const src = require('fs').readFileSync(require('path').join(__dirname, 'zuse-sync-code.gs.txt'), 'utf8');
   ok(!/gemini-2\.5-flash/.test(src), 'the retired gemini-2.5-flash is gone');
   ok(/const GEMINI_MODEL = 'gemini-[\d.]+-flash'/.test(src), 'a concrete flash model is pinned');
+  // A busy month is a long write-up. A cap here truncates it mid-sentence.
+  ok(!/maxOutputTokens/.test(src), 'no output token cap on the model');
+}
+{
+  // Uncapped, the model can still spend its whole budget thinking and answer
+  // with nothing. The email has to say that, not just 'no text'.
+  const { api, mail } = load(at(2026, 8, 28, 12, 0), [], {
+    props: { GEMINI_API_KEY: 'k' },
+    geminiBody: JSON.stringify({ candidates: [{ finishReason: 'MAX_TOKENS', content: {} }] }),
+  });
+  api.sendMonthlyReport();
+  eq(mail.length, 1, 'an empty answer still emails the figures');
+  ok(/MAX_TOKENS/.test(mail[0].body), 'and says the model ran out of room');
 }
 
 /* ============ transient API failures (a live run hit HTTP 503) ============
