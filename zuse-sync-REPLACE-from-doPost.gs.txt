@@ -25,9 +25,11 @@
  *    touches the calendar, so syncing cannot break if that permission is
  *    missing or later withdrawn.
  *
- * ALERT_EMAIL near the top of your script must be filled in for any of the
- * email or calendar reminders to happen. It is above this cut line, so if you
- * already set it, it is still set.
+ * ALERT_EMAIL must be filled in for any of the email or calendar reminders to
+ * happen -- the monthly report button included. It sits BELOW the cut line, so
+ * pasting this over the bottom of your script wipes it back to blank. Copy your
+ * address out first, and put it back into the ALERT_EMAIL line of this block
+ * after pasting, before you save and redeploy.
  * ========================================================================== */
 
 function doPost(e) {
@@ -597,7 +599,9 @@ function askGemini_(prompt) {
  * about to run out.
  *
  * You get told twice, and only once per restock:
- *   - an email now, when it drops under a week of supply
+ *   - an email now, when it drops under a week of supply. Insulin is the one
+ *     exception: it is ordered by the bottle, so it warns at one bottle (400
+ *     units) left, which is roughly seven weeks rather than seven days.
  *   - a Google Calendar event on the day it is predicted to run out, with a
  *     popup reminder. Because the script runs as you, that lands on any phone
  *     signed into the same Google account.
@@ -616,6 +620,23 @@ const STOCK_SHEET = 'Stock';
 const STOCK_LOW_DAYS = 7;    // warn once supply drops under this many days
 const STOCK_WINDOW = 14;     // days of history the daily burn rate averages over
 const STOCK_HOUR = 8;        // hour of the day the check runs (24h, script timezone)
+
+/* Insulin is ordered by the bottle and a week's notice is not enough to get one,
+ * so it warns on what is left rather than on days. 400 units is one bottle.
+ * Keyed by the ITEM name on the Stock tab; keep in step with LOW_LEFT in the app. */
+const STOCK_LOW_LEFT = { 'Insulin': 400 };
+
+/* Items used one-per-entry of another type rather than by quantity. A syringe is
+ * never logged, but one goes with every insulin shot, so its burn rate is the
+ * number of Insulin rows and not the sum of their units. Matches PER_SHOT. */
+const STOCK_PER_ROW = { 'Syringes': 'Insulin' };
+
+/** The two rules in one place, so the email and the app agree on "low". */
+function stockIsLow_(it, f) {
+  const cap = STOCK_LOW_LEFT[it.name];
+  if (cap !== undefined) return f.left <= cap;
+  return f.days !== null && f.days <= STOCK_LOW_DAYS;
+}
 
 /** Installs (or reinstalls) the daily stock check. Run this by hand once. */
 function installStockAlerts() {
@@ -645,7 +666,7 @@ function checkStock() {
 
   items.forEach(function (it) {
     const f = stockForecast_(it, rows, now);
-    if (f.days === null || f.days > STOCK_LOW_DAYS) return;
+    if (!stockIsLow_(it, f)) return;
     // One alert per restock cycle: entering a new amount moves `since`, which
     // makes a new key, which lets it speak up again.
     const key = 'stock:' + it.name + '|' + it.since;
@@ -690,12 +711,17 @@ function stockForecast_(it, rows, now) {
   const from = new Date(now.getTime() - (STOCK_WINDOW - 1) * 864e5);
   from.setHours(0, 0, 0, 0);
 
+  // A syringe has no rows of its own; it is spent one per insulin shot, so the
+  // row it is counted from is Insulin's and each one counts as exactly 1.
+  const src = STOCK_PER_ROW[it.name] || it.name;
+  const perRow = !!STOCK_PER_ROW[it.name];
+
   let used = 0, recent = 0;
   rows.forEach(function (r) {
-    if (canonType_(r.type) !== it.name) return;
+    if (canonType_(r.type) !== src) return;
     const d = parseRowDate_(r.date, r.time);
     if (!d) return;
-    const n = numFrom_(r.qty);
+    const n = perRow ? 1 : numFrom_(r.qty);
     if (since && d >= since) used += n;
     if (d >= from) recent += n;
   });
@@ -718,8 +744,11 @@ function emailLowStock_(low) {
   const names = low.map(function (x) { return x.name; }).join(', ');
   const lines = low.map(function (x) {
     const u = x.unit ? ' ' + x.unit : '';
+    // The "one bottle left" rule can fire with nothing logged for a fortnight,
+    // and there is no forecast to print then.
     return '- ' + x.name + ': ' + x.left + u + ' left, about ' + x.rate + u +
-           ' a day - ' + (x.days === 0 ? 'gone now' :
+           ' a day - ' + (x.days === null ? 'nothing logged lately, so no estimate' :
+             x.days === 0 ? 'gone now' :
              x.days + ' day' + (x.days === 1 ? '' : 's') +
              (x.outOn ? ', around ' + fmtDay_(x.outOn) : ''));
   });
@@ -727,13 +756,14 @@ function emailLowStock_(low) {
     'Time to reorder.\n\n' + lines.join('\n') + '\n\n' +
     'Worked out from the last ' + STOCK_WINDOW + ' days of entries on the sheet, ' +
     'counting down from the amount last entered in the app.\n' +
-    'A calendar reminder has been added for the day each one is due to run out.\n');
+    'A calendar reminder has been added for each one with a predicted day.\n');
 }
 
 /** A calendar event on your own Google account, so the reminder reaches the
  *  phone signed into it. Only ever called from the daily trigger - see the
  *  note in doPost about why calendar access must stay off the sync path. */
 function addReorderReminder_(x) {
+  if (x.days === null) return;   // no burn rate, so no day to put it on
   try {
     const cal = CalendarApp.getDefaultCalendar();
     if (!cal) return;

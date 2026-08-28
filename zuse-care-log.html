@@ -45,8 +45,15 @@ select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,va
 
 /* header */
 header{padding:calc(14px + env(safe-area-inset-top)) 0 6px;position:sticky;top:0;z-index:40;background:linear-gradient(180deg,var(--bg) 72%,transparent)}
-.floatSync{position:fixed;top:calc(58px + env(safe-area-inset-top));right:14px;z-index:50;width:38px;height:38px;border-radius:11px;background:var(--surf2);border:1px solid var(--line);display:grid;place-items:center;font-size:17px;color:var(--mu);box-shadow:0 2px 10px rgba(0,0,0,.25)}
+.floatSync{position:fixed;top:calc(58px + env(safe-area-inset-top));right:14px;z-index:50;width:42px;height:42px;border-radius:12px;background:var(--surf2);border:1px solid var(--line);display:grid;place-items:center;font-size:19px;color:var(--mu);box-shadow:0 2px 10px rgba(0,0,0,.25)}
 .floatSync:active{transform:scale(.94)}
+/* A tap on a fixed button gives no feedback of its own, so a sync that takes a
+   few seconds looks like a press that never registered. Spin while it runs. */
+@keyframes spin{to{transform:rotate(360deg)}}
+.floatSync.busy{border-color:var(--insulin);color:var(--insulin)}
+.floatSync.busy span{display:block;animation:spin .9s linear infinite}
+@media (prefers-reduced-motion:reduce){.floatSync.busy span{animation:pulse 1s ease-in-out infinite}}
+@keyframes pulse{50%{opacity:.35}}
 .hrow{display:flex;align-items:center;gap:11px}
 .pip{width:38px;height:38px;border-radius:12px;background:linear-gradient(150deg,#2C3B47,#16202A);display:grid;place-items:center;font-size:20px;border:1px solid var(--line)}
 .hname{font-family:var(--dsp);font-weight:700;font-size:19px;line-height:1}
@@ -226,7 +233,7 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
   </div>
 </header>
 
-<button class="floatSync" id="floatSync" onclick="syncNow()" title="Sync with Google Sheet">🔄</button>
+<button class="floatSync" id="floatSync" onclick="syncNow()" title="Sync with Google Sheet"><span>🔄</span></button>
 
 <!-- ============ TODAY ============ -->
 <div class="view on" id="v-today">
@@ -340,7 +347,7 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
   <section>
     <div class="shead"><h2>Reminders</h2></div>
     <div class="card">
-      <p class="note">These levels go up to the <b>Stock</b> tab of the Google Sheet every time you sync. The Apps Script checks them each morning; once something drops under a week of supply it emails you and puts an event in your Google Calendar for the day it is due to run out &mdash; so the reminder reaches your phone with the app closed. Run <b>installStockAlerts</b> in the script once to switch it on. Sync after restocking &mdash; the morning check reads what was last pushed, not what is on this phone.</p>
+      <p class="note">These levels go up to the <b>Stock</b> tab of the Google Sheet every time you sync. The Apps Script checks them each morning; once something drops under a week of supply &mdash; or, for insulin, under one bottle of 400 units &mdash; it emails you and puts an event in your Google Calendar for the day it is due to run out &mdash; so the reminder reaches your phone with the app closed. Run <b>installStockAlerts</b> in the script once to switch it on. Sync after restocking &mdash; the morning check reads what was last pushed, not what is on this phone.</p>
       <button class="btn sec" style="margin-top:9px" id="stockPushBtn" onclick="pushStock()">Send stock to the sheet now</button>
     </div>
   </section>
@@ -396,7 +403,7 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
   </section>
   <section>
     <div class="shead"><h2>Your data</h2></div>
-    <button class="btn sec" onclick="shareVetSummary()">Share 30-day vet summary</button>
+    <button class="btn sec" onclick="openVetSummary()">30-day vet summary</button>
     <button class="btn sec" style="margin-top:9px" onclick="exportCSV()">Download CSV</button>
     <button class="btn sec" style="margin-top:9px" onclick="exportJSON()">Download backup (JSON)</button>
     <button class="btn sec" style="margin-top:9px" onclick="document.getElementById('imp').click()">Restore from backup</button>
@@ -490,6 +497,16 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
   <button class="btn" onclick="saveUrineEntry()">Save urine test</button>
 </div>
 
+<div class="sheet" id="sumSheet">
+  <div class="grab"></div>
+  <h2>30-day vet summary</h2>
+  <pre class="mono" id="sumText" style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;line-height:1.55;background:var(--surf2);border:1px solid var(--line);border-radius:12px;padding:12px;max-height:52vh;overflow-y:auto;margin:12px 0 0"></pre>
+  <div style="display:flex;gap:8px;margin-top:10px">
+    <button class="btn sec" style="width:auto;margin:0;padding:11px 16px" onclick="closeSheet()">Close</button>
+    <button class="btn" style="width:auto;margin:0;padding:11px 20px" onclick="shareVetSummary()">Share</button>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -557,8 +574,13 @@ const T={
   sick:{n:'Was sick',i:'🤢',c:'--alert',u:'',d:1},
   diarrhea:{n:'Diarrhea',i:'⚠️',c:'--alert',u:'',d:1},
   bath:{n:'Bath',i:'🛁',c:'--walk',u:'',d:1},
-  note:{n:'Note',i:'📝',c:'--mu',u:'',d:''}
+  note:{n:'Note',i:'📝',c:'--mu',u:'',d:''},
+  // s:1 — stock-only. A syringe is used, never logged: one goes with every
+  // insulin shot, so its count is derived (see PER_SHOT) and it must stay out
+  // of every list you can log from.
+  syringe:{n:'Syringes',i:'💉',c:'--insulin',u:'syringes',d:1,s:1}
 };
+const LOGGABLE=()=>Object.keys(T).filter(k=>!T[k].s);
 const QUICK=['insulin','food','walk','chicken','treat','pred','para','synulox','samylin','poop','weewee','sick'];
 const FLAGS=['sick','diarrhea','pee','vet'];
 
@@ -644,7 +666,7 @@ const hm=d=>`${pad(d.getHours())}:${pad(d.getMinutes())}`;
 const cvar=k=>getComputedStyle(document.documentElement).getPropertyValue(k).trim()||'#8AA0AE';
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 function fmt12(t){const[h,m]=t.split(':').map(Number);const ap=h>=12?'pm':'am';const hh=h%12||12;return `${hh}:${pad(m)} ${ap}`}
-function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('on');clearTimeout(t._x);t._x=setTimeout(()=>t.classList.remove('on'),1900)}
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('on');clearTimeout(t._x);t._x=setTimeout(()=>t.classList.remove('on'),m.length>90?9000:1900)}
 function dayLabel(ds){
   const d=new Date(ds+'T12:00:00'), t=new Date(), y=new Date(Date.now()-864e5);
   if(ds===iso(t))return 'Today'; if(ds===iso(y))return 'Yesterday';
@@ -1094,20 +1116,29 @@ function insulinGuardOk(){
 /* Stock is a restock baseline, not a running counter: remaining = what you put
    in, minus everything logged on or after that date. Edits, deletions and sheet
    pulls all correct themselves, and no logging path has to know stock exists. */
-const STOCKABLE=['insulin','samylin','pred','para','synulox','cerenia','food','chicken'];
+const STOCKABLE=['insulin','syringe','samylin','pred','para','synulox','cerenia','food','chicken'];
 const LOW_DAYS=7;
+/* Insulin comes by the bottle, and a week's notice is no use for something that
+   has to be ordered: warn once there is a single bottle in hand instead. */
+const BOTTLE=400;
+const LOW_LEFT={insulin:BOTTLE};
+/* Items whose use is one per entry of another type rather than a quantity: a
+   syringe is never logged, but one goes with every insulin shot. */
+const PER_SHOT={syringe:'insulin'};
 const isoBack=n=>{const d=new Date();d.setDate(d.getDate()-n);return iso(d)};
 function usedSince(type,since){
-  return entries.filter(e=>e.type===type&&e.date>=since).reduce((a,e)=>a+(+e.qty||0),0);
+  const src=PER_SHOT[type];
+  return entries.filter(e=>e.type===(src||type)&&e.date>=since).reduce((a,e)=>a+(src?1:(+e.qty||0)),0);
 }
 /* Flat divide by the window, never by "days that happen to have an entry":
    the latter reads a twice-weekly tablet as a daily one and halves the answer. */
 function rateOver(type,days){return usedSince(type,isoBack(days-1))/days}
 function dailyUse(type,days){
+  const src=PER_SHOT[type], key=src||type;
   const out=[];
   for(let i=days-1;i>=0;i--){
     const d=isoBack(i);
-    out.push(entries.reduce((a,e)=>a+(e.type===type&&e.date===d?(+e.qty||0):0),0));
+    out.push(entries.reduce((a,e)=>a+(e.type===key&&e.date===d?(src?1:(+e.qty||0)):0),0));
   }
   return out;
 }
@@ -1134,15 +1165,21 @@ function stockDetail(type){
 function trackedStock(){
   return Object.keys(cfg.stock||{}).filter(t=>T[t]);
 }
+/* Two rules, one predicate, so the warning card, the countdown card and the
+   list all agree: a fixed amount left where one is set, days of supply otherwise. */
+const isLowStock=x=>x.left<=0||(LOW_LEFT[x.t]!=null?x.left<=LOW_LEFT[x.t]:(x.days!=null&&x.days<=LOW_DAYS));
 function lowStock(){
   return Object.keys(cfg.stock||{})
     .filter(t=>T[t])
     .map(t=>Object.assign({t},stockLeft(t)))
-    .filter(x=>x.left!=null&&(x.left<=0||(x.days!=null&&x.days<=LOW_DAYS)));
+    .filter(x=>x.left!=null&&isLowStock(x));
 }
 function stockLabel(x){
   const u=T[x.t].u?' '+T[x.t].u:'';
   if(x.left<=0)return 'out';
+  // Insulin is flagged with ~50 days still on the clock, so a day count under a
+  // "running low" heading reads as a bug. Say the thing that triggered it.
+  if(LOW_LEFT[x.t]!=null){const b=Math.round(x.left/BOTTLE*10)/10;return `${x.left}${u} left \u00b7 ${b} bottle${b===1?'':'s'}`}
   return `${x.left}${u} left${x.days!=null?` \u00b7 ~${x.days} day${x.days===1?'':'s'}`:' \u00b7 no recent use'}`;
 }
 function renderStockWarn(){
@@ -1185,9 +1222,9 @@ function renderStockNext(){
     el.innerHTML='<div class="card"><div class="k">Next to run out</div><div class="d" style="margin-top:5px">Nothing has been used in the last '+stockWin+' days, so there is nothing to predict from.</div></div>';return;
   }
   const next=all.sort((a,b)=>(a.left<=0?-1:a.days)-(b.left<=0?-1:b.days))[0];
-  const gone=next.left<=0;
-  el.innerHTML=`<div class="card"${gone||next.days<=LOW_DAYS?' style="border-color:rgba(255,107,107,.35)"':''}>
-    <div class="k"${gone||next.days<=LOW_DAYS?' style="color:#FFA8A8"':''}>Next to run out</div>
+  const gone=next.left<=0, warn=isLowStock(next);
+  el.innerHTML=`<div class="card"${warn?' style="border-color:rgba(255,107,107,.35)"':''}>
+    <div class="k"${warn?' style="color:#FFA8A8"':''}>Next to run out</div>
     <div class="v" style="color:var(${T[next.t].c})">${gone?'out':next.days}<small>${gone?'':' day'+(next.days===1?'':'s')}</small></div>
     <div class="d">${T[next.t].i} ${esc(T[next.t].n)}${gone?' \u2014 reorder now':` \u00b7 around ${esc(dayLabel(iso(next.out)))}`}</div>
   </div>`;
@@ -1211,15 +1248,28 @@ function renderStock(){
       <div class="d">restocked ${esc(dayLabel(cfg.stock[t].since))} \u00b7 ${x.used}${un(x.used,u)} used since</div>`;
     const side=document.createElement('div');
     side.style.cssText='display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex:none';
-    const inp=document.createElement('input');
-    inp.type='number';inp.step='0.5';inp.inputMode='decimal';inp.value=cfg.stock[t].qty;
-    inp.style.width='84px';inp.title='Set to the amount you now have';
-    inp.setAttribute('aria-label',`${T[t].n} in hand`);
-    inp.onchange=()=>{cfg.stock[t]={qty:+inp.value,since:iso(new Date())};saveCfg();renderStockAll()};
+    /* One number, however many boxes. Insulin gets a second one in bottles
+       because that is how it is bought; either can be typed and the stored
+       amount is the same. The unit caption is what keeps them apart. */
+    const numBox=(val,step,cap,set)=>{
+      const w=document.createElement('label');
+      w.style.cssText='display:flex;align-items:center;gap:5px;font-size:10.5px;color:var(--dim)';
+      const i=document.createElement('input');
+      i.type='number';i.step=step;i.inputMode='decimal';i.value=val;
+      i.style.width='72px';i.title='Set to the amount you now have';
+      i.setAttribute('aria-label',`${T[t].n} in hand, ${cap}`);
+      // 2.34 bottles times 400 is 935.9999999999999 in binary; round the way a
+      // number of units is actually counted before it goes in the box.
+      i.onchange=()=>{cfg.stock[t]={qty:Math.round(set(+i.value)*100)/100,since:iso(new Date())};saveCfg();renderStockAll()};
+      w.appendChild(i);w.appendChild(document.createTextNode(cap));
+      return w;
+    };
+    side.appendChild(numBox(cfg.stock[t].qty,'0.5',T[t].u||'in hand',v=>v));
+    if(t==='insulin')side.appendChild(numBox(Math.round(cfg.stock[t].qty/BOTTLE*100)/100,'0.25','bottles',v=>v*BOTTLE));
     const del=document.createElement('button');del.textContent='\u2715';del.setAttribute('aria-label','Stop tracking');
     del.style.cssText='color:var(--dim);padding:2px 4px';
     del.onclick=()=>{delete cfg.stock[t];saveCfg();renderStockAll()};
-    side.appendChild(inp);side.appendChild(del);
+    side.appendChild(del);
     head.appendChild(lbl);head.appendChild(side);card.appendChild(head);
     const tr=stockTrend(x);
     if(tr)card.insertAdjacentHTML('beforeend',tr);
@@ -1239,6 +1289,11 @@ function renderStock(){
 }
 function renderStockAll(){renderStockNext();renderStock();renderStockWarn()}
 
+/* The script only knows the actions its deployed version was written with, so a
+   deployment older than the app answers "unknown action" for anything added
+   since. That word means nothing to whoever pressed the button; say the fix. */
+const syncErr=e=>e!=='unknown action'?e:'the Apps Script deployment is older than this app. In the script: Deploy → Manage deployments → the pencil → Version: New version → Deploy. The URL does not change.';
+
 /* Stock lives in the app, but the reminder has to run on Google's clock, so the
    levels are mirrored onto a Stock tab of the sheet. Silent on sync: an older
    deployment answers "unknown action" and that must not look like a failure. */
@@ -1253,7 +1308,7 @@ async function pushStock(silent){
     const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
       body:JSON.stringify({secret:key,action:'stock',items})});
     const d=await res.json();
-    if(!silent)toast(d.error?'Stock push failed: '+d.error:`Stock sent \u2014 ${d.saved} item${d.saved===1?'':'s'}`);
+    if(!silent)toast(d.error?'Stock push failed: '+syncErr(d.error):`Stock sent \u2014 ${d.saved} item${d.saved===1?'':'s'}`);
   }catch(err){
     if(!silent)toast('Stock push failed: '+(err&&err.message?err.message:err));
   }finally{
@@ -1273,7 +1328,7 @@ async function emailReportNow(){
     const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
       body:JSON.stringify({secret:key,action:'report'})});
     const d=await res.json();
-    toast(d.error?'Report failed: '+d.error:'Report emailed to '+d.to);
+    toast(d.error?'Report failed: '+syncErr(d.error):'Report emailed to '+d.to);
   }catch(err){
     toast('Report failed: '+(err&&err.message?err.message:err));
   }finally{
@@ -1331,8 +1386,15 @@ function vetSummary(days=30){
   }
   return L.join('\n');
 }
+/* Read it before it goes anywhere: what gets handed to a vet is worth a look
+   first, and half the time the answer to "how is he doing" is on this screen. */
+function openVetSummary(){
+  document.getElementById('sumText').textContent=vetSummary();
+  document.getElementById('scrim').classList.add('on');
+  document.getElementById('sumSheet').classList.add('on');
+}
 async function shareVetSummary(){
-  const text=vetSummary();
+  const text=document.getElementById('sumText').textContent||vetSummary();
   if(navigator.share){
     try{await navigator.share({title:'Zuse \u2014 30 day summary',text});return}
     catch(e){if(e&&e.name==='AbortError')return}
@@ -1562,7 +1624,7 @@ function renderSettings(){
       row.appendChild(inp);row.appendChild(del);box.appendChild(row);
     });
     const sel=document.createElement('select');
-    sel.innerHTML='<option value="">+ Add something to this routine</option>'+Object.keys(T).map(k=>`<option value="${k}">${T[k].i} ${T[k].n}</option>`).join('');
+    sel.innerHTML='<option value="">+ Add something to this routine</option>'+LOGGABLE().map(k=>`<option value="${k}">${T[k].i} ${T[k].n}</option>`).join('');
     sel.onchange=()=>{if(sel.value){cfg[w].push([sel.value,T[sel.value].d||1]);saveCfg();renderSettings();renderChecks();renderRoutineCards()}};
     box.appendChild(sel);
   });
@@ -1595,7 +1657,7 @@ function typeKeyFromSheetType(str){
   const k=(str||'').trim().toLowerCase();
   if(TYPE_ALIASES[k]&&T[TYPE_ALIASES[k]])return TYPE_ALIASES[k];
   // try matching against our own display names directly
-  const hit=Object.keys(T).find(tk=>T[tk].n.toLowerCase()===k);
+  const hit=LOGGABLE().find(tk=>T[tk].n.toLowerCase()===k);
   return hit||null;
 }
 /* sheet quantity cells mix plain numbers ("2") with number+unit text
@@ -1620,8 +1682,9 @@ function formatQtySheet(type,qty){
 async function syncNow(){
   const url=cfg.syncUrl, key=cfg.syncKey;
   if(!url||!key){toast('Add your Web App URL and secret first');return}
-  const btn=document.getElementById('syncBtn');
+  const btn=document.getElementById('syncBtn'), fab=document.getElementById('floatSync');
   btn.textContent='Syncing…';btn.disabled=true;
+  fab.classList.add('busy');fab.disabled=true;
   try{
     const listRes=await fetch(`${url}?action=list&secret=${encodeURIComponent(key)}`);
     const listText=await listRes.text();
@@ -1630,7 +1693,7 @@ async function syncNow(){
       toast(`Sync failed: web app didn't return JSON (HTTP ${listRes.status}). Check the deployment URL.`);
       return;
     }
-    if(listData.error){toast('Sync failed: '+listData.error);return}
+    if(listData.error){toast('Sync failed: '+syncErr(listData.error));return}
     const sheetRows=listData.rows||[];
 
     // sheet row -> {dateIso,time24,typeKey,qty,notes} ; skip unparseable
@@ -1682,7 +1745,7 @@ async function syncNow(){
       const postRes=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
         body:JSON.stringify({secret:key,action:'append',rows})});
       const postData=await postRes.json();
-      if(postData.error){toast('Push failed: '+postData.error)}
+      if(postData.error){toast('Push failed: '+syncErr(postData.error))}
       else pushed=postData.added||rows.length;
     }
 
@@ -1696,6 +1759,7 @@ async function syncNow(){
     toast('Sync error: '+(err&&err.message?err.message:err));
   }finally{
     btn.textContent='Sync with Google Sheet';btn.disabled=false;
+    fab.classList.remove('busy');fab.disabled=false;
   }
 }
 
@@ -1711,7 +1775,7 @@ function renderRoutineCards(){
 function openLog(entry,preset){
   editId=entry?entry.id:null;
   const sel=document.getElementById('fType');
-  sel.innerHTML=Object.keys(T).map(k=>`<option value="${k}">${T[k].i} ${T[k].n}</option>`).join('');
+  sel.innerHTML=LOGGABLE().map(k=>`<option value="${k}">${T[k].i} ${T[k].n}</option>`).join('');
   const now=new Date();
   const k=entry?entry.type:(preset||'food');
   sel.value=k;
@@ -1735,6 +1799,7 @@ function closeSheet(){
   document.getElementById('sheet').classList.remove('on');
   document.getElementById('vetSheet').classList.remove('on');
   document.getElementById('urineSheet').classList.remove('on');
+  document.getElementById('sumSheet').classList.remove('on');
 }
 function saveEntry(){
   const o={type:document.getElementById('fType').value,
@@ -1862,7 +1927,7 @@ function tick(){
   if(!cfg.theme){cfg.theme=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';saveCfg();}
   applyTheme();renderWakeBtn();if(cfg.wakeOn)acquireWake();
   tileGrid(document.getElementById('quick'),QUICK);
-  tileGrid(document.getElementById('allTypes'),Object.keys(T));
+  tileGrid(document.getElementById('allTypes'),LOGGABLE());
   renderAll();renderWalkBar();renderVetBar();if(walkState)armWalkAutoEnd();
   if(vetState){openVetSheet();toast('Vet visit resumed');}
   tick();setInterval(tick,20000);

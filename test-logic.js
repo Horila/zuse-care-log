@@ -40,7 +40,8 @@ const T = { insulin: { n: 'Insulin', i: '💉', u: 'units' }, food: { n: 'Canned
             sick: { n: 'Was sick', i: '🤢', u: '' }, diarrhea: { n: 'Diarrhea', i: '⚠️', u: '' },
             pee: { n: 'Pee accident', i: '💦', u: '' }, urine: { n: 'Urine test', i: '🧪', u: '' },
             para: { n: 'Paracetamol', u: 'tablets' }, synulox: { n: 'Synulox 250mg', u: 'tablets' },
-            samylin: { n: 'Samylin', u: 'tablets' }, cerenia: { n: 'Cerenia 24mg', u: 'tablets' } };
+            samylin: { n: 'Samylin', u: 'tablets' }, cerenia: { n: 'Cerenia 24mg', u: 'tablets' },
+            syringe: { n: 'Syringes', i: '💉', u: 'syringes', s: 1 } };
 const esc = s => String(s);
 
 const code = [
@@ -48,11 +49,12 @@ const code = [
   'const pad=n=>String(n).padStart(2,"0");',
   'const iso=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;',
   grab('shouldAutoEnd'), grab('haversine'),
-  grabConst('isoBack'),
+  grabConst('BOTTLE'), grabConst('LOW_LEFT'), grabConst('PER_SHOT'), grabConst('isoBack'),
   grab('usedSince'), grab('rateOver'), grab('dailyUse'),
   grab('stockLeft'), grab('stockDetail'), grab('trackedStock'),
-  grab('lowStock'), grab('stockLabel'),
+  grabConst('isLowStock'), grab('lowStock'), grab('stockLabel'),
   grab('series'), grab('vetSummary'),
+  grabConst('syncErr'),
 ].join('\n');
 
 // The extracted code reads free variables `entries` and `cfg`; bind them by
@@ -60,7 +62,7 @@ const code = [
 const api = new Function('T', 'esc',
   'let entries=[],cfg={gap:12,stock:{}},stockWin=14;\n' + code +
   '\nreturn {shouldAutoEnd,haversine,usedSince,rateOver,dailyUse,stockLeft,stockDetail,' +
-  'trackedStock,lowStock,stockLabel,series,vetSummary,' +
+  'trackedStock,lowStock,stockLabel,series,vetSummary,syncErr,' +
   'setWin:w=>{stockWin=w},setState:(e,c)=>{entries=e;cfg=c}};')(T, esc);
 
 const DAY = 864e5;
@@ -142,6 +144,50 @@ ok(Math.abs(api.haversine(51.5, -0.12, 51.5, -0.12)) < 1e-6, 'zero distance to s
   const s = api.stockLeft('pred');
   eq(s.days, null, 'zero burn gives no estimate rather than Infinity');
   eq(api.lowStock().length, 0, 'and does not raise a false low-stock alarm');
+}
+
+/* ---- syringes: counted per insulin shot, never logged ---- */
+{
+  // Two shots a day for 14 days is 28 syringes, whatever the units per shot.
+  const e = [];
+  for (let i = 0; i < 14; i++) {
+    e.push({ type: 'insulin', date: dayAgo(i), time: '11:30', qty: 8 });
+    e.push({ type: 'insulin', date: dayAgo(i), time: '23:30', qty: 8 });
+  }
+  api.setState(e, { gap: 12, stock: { syringe: { qty: 100, since: dayAgo(13) } } });
+  const s = api.stockLeft('syringe');
+  eq(s.left, 72, 'one syringe per shot, not one per unit');
+  eq(s.rate, 2, 'two a day');
+  eq(s.days, 36, '72 left at 2 a day');
+  eq(api.dailyUse('syringe', 14)[13], 2, 'the daily bars count shots, not units');
+  // Under a week of supply is the ordinary rule, and syringes use it.
+  api.setState(e, { gap: 12, stock: { syringe: { qty: 22, since: dayAgo(13) } } });
+  const low = api.lowStock();
+  eq(low.length, 1, '22 in, 28 used - flagged');
+  eq(api.stockLabel(low[0]), 'out', 'and reads as out');
+  api.setState(e, { gap: 12, stock: { syringe: { qty: 40, since: dayAgo(13) } } });
+  eq(api.lowStock().length, 1, '12 left at 2 a day is 6 days, inside the 7-day warning');
+  api.setState(e, { gap: 12, stock: { syringe: { qty: 60, since: dayAgo(13) } } });
+  eq(api.lowStock().length, 0, '32 left is 16 days, so nothing to say');
+}
+
+/* ---- insulin warns on a bottle in hand, not on a week of supply ---- */
+{
+  const e = [];
+  for (let i = 0; i < 14; i++) e.push({ type: 'insulin', date: dayAgo(i), time: '11:30', qty: 8 });
+  // 500 in, 112 used: 388 left. At 8/day that is 48 days - a week's rule would
+  // say nothing, and by then there would be no time to order a bottle.
+  api.setState(e, { gap: 12, stock: { insulin: { qty: 500, since: dayAgo(13) } } });
+  const low = api.lowStock();
+  eq(low.length, 1, 'under one bottle is low however many days that is');
+  eq(low[0].days, 48, 'even with over a month of supply left');
+  eq(api.stockLabel(low[0]), '388 units left · 1 bottle',
+     'the label says the bottle, since a 48-day countdown under "running low" reads as a bug');
+  api.setState(e, { gap: 12, stock: { insulin: { qty: 1000, since: dayAgo(13) } } });
+  eq(api.lowStock().length, 0, '888 left is more than a bottle, so nothing is said');
+  api.setState(e, { gap: 12, stock: { insulin: { qty: 112, since: dayAgo(13) } } });
+  eq(api.stockLabel(Object.assign({ t: 'insulin' }, api.stockLeft('insulin'))), 'out',
+     'nothing left still reads as out, not as 0 bottles');
 }
 
 /* ---- vet summary ---- */
@@ -294,6 +340,15 @@ eq(/\bAudioStore\b/.test(js), false, 'no dangling AudioStore references after th
   api.setState(e, { gap: 12, stock: { pred: { qty: 30, since: dayAgo(20) } } });
   const x = api.stockDetail('pred');
   eq(x.r7, x.rPrev, 'twenty flat days of use show no week-on-week change');
+}
+
+{
+  // The one server error the user can act on: an older deployment does not know
+  // an action the app has since gained, and "unknown action" says nothing about
+  // what to do. Every other error is passed through untouched.
+  ok(/Manage deployments/.test(api.syncErr('unknown action')), 'a stale deployment is spelled out');
+  eq(api.syncErr('unauthorized'), 'unauthorized', 'any other error is left alone');
+  ok(api.syncErr('unknown action').length > 90, 'and is long enough to get the 9s toast');
 }
 
 console.log(`\n  ${passed} checks passed\n`);

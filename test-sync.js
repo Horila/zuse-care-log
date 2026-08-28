@@ -631,6 +631,49 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   eq(mail.length, 1, 'the email survives a calendar failure');
   eq(events.length, 0, 'only the reminder is lost');
 }
+{
+  // Syringes are never a row of their own: one is spent per Insulin row, so the
+  // burn rate is a count of shots and has nothing to do with the units column.
+  const rows = [];
+  for (let d = 15; d <= 28; d++) {
+    rows.push([cell(2026, 8, d), cell(2026, 8, d, 11, 30), 'Insulin', '16', '']);
+    rows.push([cell(2026, 8, d), cell(2026, 8, d, 23, 30), 'Insulin', '16', '']);
+  }
+  const { api, mail, events } = load(at(2026, 8, 28, 12, 0), rows, {
+    stockRows: [['Syringes', 40, 'syringes', '15/08/2026']],
+  });
+  const f = api.stockForecast_(api.readStockTab_()[0], api.readRows(), new Date());
+  eq(f.used, 28, '28 shots is 28 syringes, not 448');
+  eq(f.rate, 2, 'two a day');
+  eq(f.left, 12, '40 in, 28 used');
+  eq(f.days, 6, 'six days left');
+  eq(api.checkStock(), 1, 'and six days is inside the ordinary week-of-supply rule');
+  ok(/running low on Syringes/.test(mail[0].subject), 'the email names them');
+  eq(events.length, 1, 'with a calendar reminder like anything else');
+}
+{
+  // Insulin is bought by the bottle, so days of supply is the wrong alarm: at
+  // 8 units a day, 388 left is 48 days away and still the last bottle.
+  const rows = [];
+  for (let d = 15; d <= 28; d++) rows.push([cell(2026, 8, d), cell(2026, 8, d, 11, 30), 'Insulin', '8', '']);
+  const { api, mail } = load(at(2026, 8, 28, 12, 0), rows, {
+    stockRows: [['Insulin', 500, 'units', '15/08/2026']],
+  });
+  const f = api.stockForecast_(api.readStockTab_()[0], api.readRows(), new Date());
+  eq(f.days, 48, 'a week-of-supply rule would say nothing for another 41 days');
+  eq(api.checkStock(), 1, 'the bottle rule speaks up now, while there is time to order');
+  ok(/388 units left/.test(mail[0].body), 'and says what is left');
+}
+{
+  // The bottle rule can fire with nothing logged in a fortnight, and then there
+  // is no rate to forecast from. Neither the email nor the calendar may break.
+  const { api, mail, events } = load(at(2026, 8, 28, 12, 0), [], {
+    stockRows: [['Insulin', 100, 'units', '15/08/2026']],
+  });
+  eq(api.checkStock(), 1, 'a bottle rule needs no burn rate');
+  ok(/no estimate/.test(mail[0].body), 'the email says so rather than printing "null days"');
+  eq(events.length, 0, 'and no calendar event is invented for a day nobody can name');
+}
 
 /* ============ the two new POST actions ==================================== */
 {
@@ -696,9 +739,9 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   const body = cut === -1 ? undefined : slice.slice(cut + 5);
   ok(body !== undefined, 'the paste file keeps its instruction header');
   ok(!/^const SECRET/m.test(slice), 'and never carries a SECRET line');
-  eq(body.trimEnd(), SRC.slice(SRC.indexOf('function doPost(e) {')).trimEnd(),
-     'the paste file is byte-for-byte the tail of the real script');
   ok(/Manage deployments/.test(slice), 'and says the web app has to be redeployed');
+  // That it matches the real script byte-for-byte is asserted at the end of
+  // this file, where a failure can name the line that drifted.
 }
 
 {
@@ -721,6 +764,35 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   eq(api.checkStock(), 1, 'so the morning check finds it low');
   eq(mail.length, 1, 'emails once');
   eq(events.length, 1, 'and books the reminder');
+}
+
+{
+  /* The backend lives in two committed files, and only zuse-sync-code.gs.txt is
+     exercised by the tests above. Everything from "function doPost(e) {" onward
+     has to be byte-identical in both, or someone edits one file, ships the
+     other, and the paste file is quietly stale. The check above allows trailing
+     whitespace to differ; this one does not, and when it fails it says which
+     line went first instead of printing two entire scripts at you. */
+  const REPLACE_NAME = 'zuse-sync-REPLACE-from-doPost.gs.txt';
+  const replaceSrc = fs.readFileSync(path.join(__dirname, REPLACE_NAME), 'utf8');
+  const iSrc = SRC.indexOf('\nfunction doPost(e) {');
+  const iRep = replaceSrc.indexOf('\nfunction doPost(e) {');
+  ok(iSrc !== -1, 'doPost not found in zuse-sync-code.gs.txt');
+  ok(iRep !== -1, `doPost not found in ${REPLACE_NAME}`);
+  const tailA = SRC.slice(iSrc);
+  const tailB = replaceSrc.slice(iRep);
+  // Line numbers are counted within the sliced tail, line 1 being the blank
+  // line that precedes "function doPost(e) {" in both files.
+  const linesA = tailA.split('\n');
+  const linesB = tailB.split('\n');
+  let firstDiff = 0;
+  while (firstDiff < Math.max(linesA.length, linesB.length)
+         && linesA[firstDiff] === linesB[firstDiff]) firstDiff++;
+  eq(tailA === tailB, true,
+     `the two .gs.txt files have drifted and must be updated together — `
+     + `zuse-sync-code.gs.txt and ${REPLACE_NAME} first differ at line `
+     + `${firstDiff + 1} of the doPost tail: `
+     + `${JSON.stringify(linesA[firstDiff])} vs ${JSON.stringify(linesB[firstDiff])}`);
 }
 
 console.log(`\n  ${passed} checks passed\n`);
