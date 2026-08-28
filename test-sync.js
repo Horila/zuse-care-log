@@ -51,8 +51,38 @@ function load(nowMs, rows, opts) {
   const values = [['header'], ['header']].concat(
     rows.map(r => ['', r[0], r[1], r[2], r[3] === undefined ? '' : r[3], r[4] || ''])
   );
+  const events = [];
+
+  /** A sheet that can be cleared and written to, so writeStockTab_ is exercised
+   *  for real rather than mocked away. */
+  function writableSheet(initial) {
+    let v = initial.map(r => r.slice());
+    return {
+      getDataRange: () => ({ getValues: () => v }),
+      clear: () => { v = []; },
+      getLastRow: () => v.length,
+      getRange: (r, c) => ({
+        getValue: () => (v[r - 1] || [])[c - 1],
+        setValues: rowsIn => {
+          while (v.length < r - 1 + rowsIn.length) v.push([]);
+          rowsIn.forEach((row, i) => { v[r - 1 + i] = row.slice(); });
+        },
+      }),
+    };
+  }
+  const mainTab = writableSheet(values);
+  // opts.stockRows: [ITEM, IN HAND, UNIT, COUNTING FROM] rows, header added here.
+  let stockTab = opts.stockRows
+    ? writableSheet([['ITEM', 'IN HAND', 'UNIT', 'COUNTING FROM', 'UPDATED']]
+        .concat(opts.stockRows.map(r => r.concat(['x']))))
+    : null;
 
   const stubs = {
+    ContentService: {
+      MimeType: { JSON: 'json' },
+      // Keeps the serialised body reachable so doPost can be asserted on.
+      createTextOutput: t => ({ __out: t, setMimeType: function () { return this; } }),
+    },
     Date: frozenDate(nowMs),
     Utilities: { formatDate, sleep: () => { slept.push(1); } },
     Session: { getScriptTimeZone: () => 'Europe/London' },
@@ -85,8 +115,26 @@ function load(nowMs, rows, opts) {
     },
     SpreadsheetApp: {
       getActiveSpreadsheet: () => ({
-        getSheetByName: () => ({ getDataRange: () => ({ getValues: () => values }) }),
+        // Name-aware: the Stock tab is a different sheet, and is absent until
+        // the app has synced at least once.
+        getSheetByName: n => (n === 'Stock' ? stockTab : mainTab),
+        insertSheet: () => (stockTab = writableSheet([])),
       }),
+    },
+    CalendarApp: {
+      getDefaultCalendar: () => {
+        // opts.calendarFails stands in for the scope never having been granted.
+        if (opts.calendarFails) throw new Error('no calendar scope');
+        return {
+          getEventsForDay: (d, o) => events.filter(ev =>
+            ev.title === (o && o.search) && ev.when.toDateString() === d.toDateString()),
+          createEvent: (title, when, end, o) => {
+            const ev = { title, when, end, options: o, reminders: [] };
+            events.push(ev);
+            return { addPopupReminder: m => ev.reminders.push(m) };
+          },
+        };
+      },
     },
   };
 
@@ -98,9 +146,12 @@ function load(nowMs, rows, opts) {
   const body = src + `
     ;return {readRows, parseRowDate_, slotsToCheck_, checkShotDue, cleanupAlertKeys_,
              numFrom_, bucket_, buildReportStats_, sendMonthlyReport, askGemini_,
-             reportPrompt_, fmtDay_, canonType_, incidentKey_};`;
+             reportPrompt_, fmtDay_, canonType_, incidentKey_,
+             checkStock, readStockTab_, stockForecast_, writeStockTab_, doPost};`;
   const api = new Function(...names, body)(...names.map(n => stubs[n]));
-  return { api, mail, props, fetches, slept };
+  const post = o => JSON.parse(api.doPost({ postData: { contents: JSON.stringify(
+    Object.assign({ secret: 'CHANGE_ME_TO_YOUR_OWN_SECRET' }, o)) } }).__out);
+  return { api, mail, props, fetches, slept, events, post, stock: () => stockTab };
 }
 
 const at = (y, m, d, h, mi) => new Date(y, m - 1, d, h, mi, 0).getTime();
@@ -480,6 +531,168 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
      'and is labelled by the event, not by the row it arrived on');
   // the food row must still count as food
   ok(/Canned Food: 2 over 1 entries/.test(txt), 'that row is also still a feeding');
+}
+
+/* ============ stock: what is left, and when it runs out ==================== */
+{
+  // No Stock tab yet (nobody has synced since the update). This runs every
+  // morning on a trigger, so failing here would email an error every day.
+  const { api, mail } = load(at(2026, 8, 28, 8, 0), []);
+  eq(api.readStockTab_().length, 0, 'a missing Stock tab reads as empty');
+  eq(api.checkStock(), 0, 'and the daily check does nothing rather than throwing');
+  eq(mail.length, 0, 'no email');
+}
+{
+  /* THE SHARED FIXTURE — test-logic.js asserts the app reaches these same
+     three numbers from the same shape of data. Both implementations of the
+     stock model have to agree; this pair is what catches them drifting. */
+  const rows = [];
+  for (let d = 9; d <= 28; d++) rows.push([cell(2026, 8, d), cell(2026, 8, d, 11, 30), 'Prednisolone', '0.5', '']);
+  const { api } = load(at(2026, 8, 28, 12, 0), rows, {
+    stockRows: [['Prednisolone', 30, 'tablets', '08/08/2026']],
+  });
+  const items = api.readStockTab_();
+  eq(items.length, 1, 'the Stock tab is read');
+  eq(items[0].name, 'Prednisolone', 'by canonical name');
+
+  const f = api.stockForecast_(items[0], api.readRows(), new Date());
+  eq(f.left, 20, 'SHARED FIXTURE left: 30 in, 10 used');
+  eq(f.rate, 0.5, 'SHARED FIXTURE rate: 0.5 a day');
+  eq(f.days, 40, 'SHARED FIXTURE days: 20 left at 0.5 a day');
+}
+{
+  // A sheet spelling the app does not use must still be counted against stock.
+  const rows = [];
+  for (let d = 15; d <= 28; d++) rows.push([cell(2026, 8, d), cell(2026, 8, d, 11, 30), 'Chicken Slice \uD83C\uDF57', '100', '']);
+  const { api } = load(at(2026, 8, 28, 12, 0), rows, {
+    stockRows: [['Chicken Slice', 2000, 'g', '15/08/2026']],
+  });
+  const f = api.stockForecast_(api.readStockTab_()[0], api.readRows(), new Date());
+  eq(f.used, 1400, 'the emoji spelling counts against the plain one');
+  eq(f.left, 600, 'so what is left is right');
+}
+{
+  // Under a week of supply: email now, calendar event for the day it goes.
+  const rows = [];
+  for (let d = 15; d <= 28; d++) rows.push([cell(2026, 8, d), cell(2026, 8, d, 11, 30), 'Insulin', '16', '']);
+  const { api, mail, events, props } = load(at(2026, 8, 28, 12, 0), rows, {
+    stockRows: [['Insulin', 300, 'units', '15/08/2026']],
+  });
+  eq(api.checkStock(), 1, 'one item is low');
+  eq(mail.length, 1, 'and it is emailed');
+  ok(/running low on Insulin/.test(mail[0].subject), 'the subject names it');
+  ok(/76 units left/.test(mail[0].body), '300 in, 224 used');
+  ok(/about 16 units a day/.test(mail[0].body), 'with the burn rate');
+  ok(/4 days/.test(mail[0].body), 'and the days left');
+
+  eq(events.length, 1, 'a calendar reminder is created');
+  eq(events[0].title, 'Zuse: Insulin runs out', 'named plainly');
+  eq(events[0].when.getDate(), 1, 'on 1 Sep, four days out');
+  eq(events[0].when.getHours(), 9, 'at 9am');
+  eq(events[0].reminders[0], 0, 'with a popup at the time, so it reaches the phone');
+
+  // Never twice for the same restock.
+  eq(api.checkStock(), 0, 'a second run that morning says nothing');
+  eq(mail.length, 1, 'no second email');
+  ok(Object.keys(props).some(k => k.indexOf('stock:Insulin|') === 0), 'the cycle is remembered');
+}
+{
+  // Restocking moves the "counting from" date, which must let it speak again.
+  const rows = [];
+  for (let d = 15; d <= 28; d++) rows.push([cell(2026, 8, d), cell(2026, 8, d, 11, 30), 'Insulin', '16', '']);
+  const { api, mail, props } = load(at(2026, 8, 28, 12, 0), rows, {
+    stockRows: [['Insulin', 300, 'units', '15/08/2026']],
+    props: { 'stock:Insulin|20/08/2026': '1' },
+  });
+  api.checkStock();
+  eq(mail.length, 1, 'the key from a previous restock does not silence it');
+  ok(!('stock:Insulin|20/08/2026' in props), 'and that stale key is cleared out');
+}
+{
+  // Plenty in hand: silence.
+  const rows = [];
+  for (let d = 15; d <= 28; d++) rows.push([cell(2026, 8, d), cell(2026, 8, d, 11, 30), 'Insulin', '16', '']);
+  const { api, mail, events } = load(at(2026, 8, 28, 12, 0), rows, {
+    stockRows: [['Insulin', 3000, 'units', '15/08/2026']],
+  });
+  eq(api.checkStock(), 0, 'over a week of supply says nothing');
+  eq(mail.length + events.length, 0, 'no email, no event');
+}
+{
+  // The calendar scope may never have been granted. The email still has to go.
+  const rows = [];
+  for (let d = 15; d <= 28; d++) rows.push([cell(2026, 8, d), cell(2026, 8, d, 11, 30), 'Insulin', '16', '']);
+  const { api, mail, events } = load(at(2026, 8, 28, 12, 0), rows, {
+    stockRows: [['Insulin', 300, 'units', '15/08/2026']], calendarFails: true,
+  });
+  eq(api.checkStock(), 1, 'still reports the low item');
+  eq(mail.length, 1, 'the email survives a calendar failure');
+  eq(events.length, 0, 'only the reminder is lost');
+}
+
+/* ============ the two new POST actions ==================================== */
+{
+  const { api, post, stock } = load(at(2026, 8, 28, 12, 0), []);
+  const r = post({ action: 'stock', items: [
+    { name: 'Prednisolone', qty: 12, unit: 'tablets', since: '20/08/2026' },
+    { name: 'Insulin', qty: 300, unit: 'units', since: '15/08/2026' },
+  ] });
+  eq(r.saved, 2, 'both items are written');
+  const v = stock().getDataRange().getValues();
+  eq(v[0][0], 'ITEM', 'the tab gets a header');
+  eq(v[1][0], 'Prednisolone', 'then the rows');
+  eq(v[2][1], 300, 'quantities land as numbers, not text');
+  // and the round trip reads back as the same thing
+  eq(api.readStockTab_()[0].qty, 12, 'what was written is what is read');
+  eq(api.readStockTab_()[1].since, '15/08/2026', 'dates survive the round trip');
+}
+{
+  // Re-pushing must replace, never append: stale items would go on alerting.
+  const { post, stock } = load(at(2026, 8, 28, 12, 0), [], {
+    stockRows: [['Insulin', 300, 'units', '15/08/2026'], ['Carrot', 9, '', '01/08/2026']],
+  });
+  post({ action: 'stock', items: [{ name: 'Insulin', qty: 400, unit: 'units', since: '28/08/2026' }] });
+  const v = stock().getDataRange().getValues();
+  eq(v.length, 2, 'the dropped item is gone, not left behind');
+  eq(v[1][1], 400, 'and the kept one is updated');
+}
+{
+  const { post, mail } = load(at(2026, 8, 28, 12, 0), [], { props: { GEMINI_API_KEY: 'k' } });
+  const r = post({ action: 'report' });
+  eq(r.ok, true, 'the report button gets a receipt');
+  eq(mail.length, 1, 'and the report is actually sent');
+}
+{
+  const { post } = load(at(2026, 8, 28, 12, 0), []);
+  eq(post({ action: 'nonsense' }).error, 'unknown action', 'anything else is refused');
+  eq(JSON.parse(load(at(2026, 8, 28, 12, 0), []).api.doPost(
+    { postData: { contents: '{"action":"stock"}' } }).__out).error,
+    'unauthorized', 'and the secret is still required');
+}
+{
+  /* Syncing is used every day; the calendar scope may not be granted for weeks.
+     No doPost path may touch CalendarApp, or an ungranted scope would break it. */
+  const { post, stock } = load(at(2026, 8, 28, 12, 0), [], { calendarFails: true });
+  eq(post({ action: 'stock', items: [{ name: 'Insulin', qty: 5, unit: 'units', since: '28/08/2026' }] }).saved,
+     1, 'pushing stock works with no calendar access');
+  eq(post({ action: 'append', rows: [] }).added, 0, 'so does appending');
+  eq(stock().getDataRange().getValues().length, 2, 'and the tab was really written');
+}
+
+{
+  /* The user pastes zuse-sync-REPLACE-from-doPost.gs.txt over the bottom of
+     their live script. If it drifts from the source, they paste stale code and
+     have no way of knowing. It also must never carry a SECRET line, or the
+     paste would overwrite theirs and silently break syncing. */
+  const slice = fs.readFileSync(path.join(__dirname, 'zuse-sync-REPLACE-from-doPost.gs.txt'), 'utf8');
+  // The FIRST header break only - the script below it has banners of its own.
+  const cut = slice.indexOf(' */\n\n');
+  const body = cut === -1 ? undefined : slice.slice(cut + 5);
+  ok(body !== undefined, 'the paste file keeps its instruction header');
+  ok(!/^const SECRET/m.test(slice), 'and never carries a SECRET line');
+  eq(body.trimEnd(), SRC.slice(SRC.indexOf('function doPost(e) {')).trimEnd(),
+     'the paste file is byte-for-byte the tail of the real script');
+  ok(/Manage deployments/.test(slice), 'and says the web app has to be redeployed');
 }
 
 console.log(`\n  ${passed} checks passed\n`);

@@ -1,3 +1,140 @@
+/* ==========================================================================
+ * PASTE THIS OVER THE BOTTOM OF YOUR APPS SCRIPT
+ *
+ * This is everything from "function doPost(e) {" to the end of the file.
+ * It deliberately starts below your SECRET, so your own secret is never
+ * touched.
+ *
+ * HOW:
+ * 1. Open the Apps Script editor on the sheet.
+ * 2. Click on the line that reads   function doPost(e) {
+ *    Select from there all the way to the very bottom of the file, and
+ *    delete it. Everything above that line stays exactly as it is.
+ * 3. Paste this whole file in its place. Save.
+ *
+ * 4. THE WEB APP MUST BE REDEPLOYED, or the app's new buttons will answer
+ *    "unknown action". Deploy -> Manage deployments -> the pencil icon ->
+ *    Version: New version -> Deploy. The URL does not change, so syncing
+ *    carries on working.
+ *
+ * 5. Sync once from the app. That creates the "Stock" tab on the sheet.
+ *
+ * 6. In the editor, pick "installStockAlerts" from the function dropdown and
+ *    Run it once. This is the run that asks for calendar permission - say yes.
+ *    It is done by hand, from the editor, on purpose: no web app path ever
+ *    touches the calendar, so syncing cannot break if that permission is
+ *    missing or later withdrawn.
+ *
+ * ALERT_EMAIL near the top of your script must be filled in for any of the
+ * email or calendar reminders to happen. It is above this cut line, so if you
+ * already set it, it is still set.
+ * ========================================================================== */
+
+function doPost(e) {
+  let body;
+  try {
+    body = JSON.parse(e.postData.contents);
+  } catch (err) {
+    return jsonOut({ error: 'bad json' });
+  }
+  if (!body.secret || body.secret !== SECRET) {
+    return jsonOut({ error: 'unauthorized' });
+  }
+  if (body.action === 'append') {
+    const added = appendRows(body.rows || []);
+    return jsonOut({ added: added });
+  }
+  // The app's "email the report now" button.
+  if (body.action === 'report') {
+    if (!ALERT_EMAIL) return jsonOut({ error: 'ALERT_EMAIL is blank in the script' });
+    sendMonthlyReport();
+    return jsonOut({ ok: true, to: ALERT_EMAIL });
+  }
+  // Stock levels are kept in the app; this mirrors them onto a sheet tab so the
+  // daily checker can see them, and so they are visible to whoever opens the
+  // sheet. No CalendarApp call may ever appear on a doPost path: an ungranted
+  // calendar scope would then break syncing, which is used every day.
+  if (body.action === 'stock') {
+    const n = writeStockTab_(body.items || []);
+    return jsonOut({ ok: true, saved: n });
+  }
+  return jsonOut({ error: 'unknown action' });
+}
+
+function getSheet_() {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!sh) throw new Error('Sheet "' + SHEET_NAME + '" not found');
+  return sh;
+}
+
+/** Reads every data row (skipping the 2 header rows), carrying the date
+ *  forward for rows where the DATE cell is blank (same-day continuation). */
+function readRows() {
+  const sh = getSheet_();
+  const values = sh.getDataRange().getValues();
+  const out = [];
+  let curDate = '';
+  for (let i = 2; i < values.length; i++) {
+    const row = values[i];
+    const dateCell = row[1];
+    const timeCell = row[2];
+    const type = row[3];
+    const qty = row[4];
+    const notes = row[5];
+    if (dateCell) curDate = formatDate_(dateCell);
+    if (!type) continue; // blank/free-text rows with no TYPE are skipped
+    out.push({
+      date: curDate,
+      time: formatTime_(timeCell),
+      type: String(type),
+      qty: (qty === '' || qty == null) ? '' : qty,
+      notes: notes ? String(notes) : ''
+    });
+  }
+  return out;
+}
+
+/** Appends rows at the bottom, keeping the "blank date = same day as
+ *  previous row" convention used throughout the sheet. */
+function appendRows(rows) {
+  const sh = getSheet_();
+  const lastRow = sh.getLastRow();
+  let lastDate = '';
+  if (lastRow >= 3) {
+    for (let r = lastRow; r >= 3; r--) {
+      const d = sh.getRange(r, 2).getValue();
+      if (d) { lastDate = formatDate_(d); break; }
+    }
+  }
+  const out = [];
+  rows.forEach(function (r) {
+    const sameDate = (r.date === lastDate);
+    out.push(['', sameDate ? '' : r.date, r.time, r.type, r.qty, r.notes || '']);
+    lastDate = r.date;
+  });
+  if (out.length) {
+    sh.getRange(sh.getLastRow() + 1, 1, out.length, 6).setValues(out);
+  }
+  return out.length;
+}
+
+function formatDate_(v) {
+  if (Object.prototype.toString.call(v) === '[object Date]') {
+    return Utilities.formatDate(v, Session.getScriptTimeZone(), 'dd/MM/yyyy');
+  }
+  return String(v).trim();
+}
+function formatTime_(v) {
+  if (Object.prototype.toString.call(v) === '[object Date]') {
+    return Utilities.formatDate(v, Session.getScriptTimeZone(), 'h:mm a').toLowerCase();
+  }
+  return String(v).trim().toLowerCase();
+}
+
+function jsonOut(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
 
 /* ==========================================================================
  * MISSED-SHOT REMINDER
@@ -448,4 +585,199 @@ function askGemini_(prompt) {
     if (attempt < RETRIES - 1) Utilities.sleep(Math.pow(2, attempt) * 5000);
   }
   throw new Error(last + '  (gave up after ' + RETRIES + ' attempts)');
+}
+
+
+/* ==========================================================================
+ * STOCK - running out, before you run out
+ *
+ * The app counts down from what you say you have in hand. This mirrors those
+ * numbers onto a "Stock" tab, then once a day works out how fast each one is
+ * actually being used (from the sheet's own rows) and tells you when it is
+ * about to run out.
+ *
+ * You get told twice, and only once per restock:
+ *   - an email now, when it drops under a week of supply
+ *   - a Google Calendar event on the day it is predicted to run out, with a
+ *     popup reminder. Because the script runs as you, that lands on any phone
+ *     signed into the same Google account.
+ *
+ * SETUP (one-time):
+ * 1. ALERT_EMAIL above must be set - the same one the shot reminder uses.
+ * 2. Sync once from the app. That creates the "Stock" tab.
+ * 3. In the editor pick "installStockAlerts" and Run. Authorize when asked -
+ *    this is the run that asks for calendar access, which is why it is done
+ *    by hand and never from the web app.
+ *
+ * To turn it off: Triggers (clock icon) -> delete checkStock.
+ * ========================================================================== */
+
+const STOCK_SHEET = 'Stock';
+const STOCK_LOW_DAYS = 7;    // warn once supply drops under this many days
+const STOCK_WINDOW = 14;     // days of history the daily burn rate averages over
+const STOCK_HOUR = 8;        // hour of the day the check runs (24h, script timezone)
+
+/** Installs (or reinstalls) the daily stock check. Run this by hand once. */
+function installStockAlerts() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'checkStock') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('checkStock').timeBased().atHour(STOCK_HOUR).everyDays(1).create();
+  Logger.log('Stock check installed, running daily at ' + STOCK_HOUR + ':00.');
+}
+
+/** Same thing on demand, for checking the setup works. */
+function checkStockNow() {
+  const n = checkStock();
+  Logger.log(n ? 'Alerted on ' + n + ' item(s).' : 'Nothing is running low.');
+}
+
+/** Runs on the trigger. Emails once per item per restock, never twice. */
+function checkStock() {
+  if (!ALERT_EMAIL) return 0;
+  const items = readStockTab_();
+  if (!items.length) return 0;          // no Stock tab yet, or nothing tracked
+
+  const rows = readRows();
+  const now = new Date();
+  const props = PropertiesService.getScriptProperties();
+  const low = [];
+
+  items.forEach(function (it) {
+    const f = stockForecast_(it, rows, now);
+    if (f.days === null || f.days > STOCK_LOW_DAYS) return;
+    // One alert per restock cycle: entering a new amount moves `since`, which
+    // makes a new key, which lets it speak up again.
+    const key = 'stock:' + it.name + '|' + it.since;
+    if (props.getProperty(key)) return;
+    props.setProperty(key, '1');
+    low.push(Object.assign({}, it, f));
+  });
+
+  cleanupStockKeys_(props, items);
+  if (!low.length) return 0;
+
+  emailLowStock_(low);
+  low.forEach(function (x) { addReorderReminder_(x); });
+  return low.length;
+}
+
+/** The Stock tab, or [] when it does not exist yet. Never throws: a missing
+ *  tab on a fresh install must not make this fail every morning. */
+function readStockTab_() {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(STOCK_SHEET);
+  if (!sh) return [];
+  const v = sh.getDataRange().getValues();
+  const out = [];
+  for (let i = 1; i < v.length; i++) {          // row 1 is the header
+    const name = String(v[i][0]).trim();
+    if (!name) continue;
+    out.push({
+      name: name,
+      qty: numFrom_(v[i][1]),
+      unit: String(v[i][2] === undefined ? '' : v[i][2]).trim(),
+      since: formatDate_(v[i][3])
+    });
+  }
+  return out;
+}
+
+/** What is left, how fast it is going, and when it runs out.
+ *  Same model as the app: remaining = what was entered, minus everything
+ *  logged on or after that day. Edits and deletions correct themselves. */
+function stockForecast_(it, rows, now) {
+  const since = parseRowDate_(it.since, '12:00 am');
+  const from = new Date(now.getTime() - (STOCK_WINDOW - 1) * 864e5);
+  from.setHours(0, 0, 0, 0);
+
+  let used = 0, recent = 0;
+  rows.forEach(function (r) {
+    if (canonType_(r.type) !== it.name) return;
+    const d = parseRowDate_(r.date, r.time);
+    if (!d) return;
+    const n = numFrom_(r.qty);
+    if (since && d >= since) used += n;
+    if (d >= from) recent += n;
+  });
+
+  // Fixed divisor, not "days that happen to have an entry": dividing by the
+  // latter reads a twice-weekly tablet as a daily one and halves the estimate.
+  const rate = recent / STOCK_WINDOW;
+  const left = round_(it.qty - used);
+  const days = rate > 0 ? Math.floor(Math.max(0, left) / rate) : null;
+  return {
+    left: left,
+    used: round_(used),
+    rate: round_(rate),
+    days: days,
+    outOn: days === null ? null : new Date(now.getTime() + days * 864e5)
+  };
+}
+
+function emailLowStock_(low) {
+  const names = low.map(function (x) { return x.name; }).join(', ');
+  const lines = low.map(function (x) {
+    const u = x.unit ? ' ' + x.unit : '';
+    return '- ' + x.name + ': ' + x.left + u + ' left, about ' + x.rate + u +
+           ' a day - ' + (x.days === 0 ? 'gone now' :
+             x.days + ' day' + (x.days === 1 ? '' : 's') +
+             (x.outOn ? ', around ' + fmtDay_(x.outOn) : ''));
+  });
+  MailApp.sendEmail(ALERT_EMAIL, 'Zuse: running low on ' + names,
+    'Time to reorder.\n\n' + lines.join('\n') + '\n\n' +
+    'Worked out from the last ' + STOCK_WINDOW + ' days of entries on the sheet, ' +
+    'counting down from the amount last entered in the app.\n' +
+    'A calendar reminder has been added for the day each one is due to run out.\n');
+}
+
+/** A calendar event on your own Google account, so the reminder reaches the
+ *  phone signed into it. Only ever called from the daily trigger - see the
+ *  note in doPost about why calendar access must stay off the sync path. */
+function addReorderReminder_(x) {
+  try {
+    const cal = CalendarApp.getDefaultCalendar();
+    if (!cal) return;
+    const when = new Date();
+    when.setDate(when.getDate() + Math.max(1, x.days));   // tomorrow at the earliest
+    when.setHours(9, 0, 0, 0);
+    const title = 'Zuse: ' + x.name + ' runs out';
+    // Don't stack copies if the trigger ever fires twice for one cycle.
+    const clash = cal.getEventsForDay(when, { search: title });
+    if (clash && clash.length) return;
+    const u = x.unit ? ' ' + x.unit : '';
+    const ev = cal.createEvent(title, when, new Date(when.getTime() + 15 * 6e4), {
+      description: x.left + u + ' left as of ' + fmtDay_(new Date()) + ', going at about ' +
+                   x.rate + u + ' a day over the last ' + STOCK_WINDOW + ' days.'
+    });
+    ev.addPopupReminder(0);
+  } catch (err) {
+    // A missing calendar scope must not lose the email that already went out.
+    Logger.log('Calendar reminder skipped: ' + err);
+  }
+}
+
+/** Drops the "already told you" keys for restocks that are no longer current,
+ *  so entering a new amount lets the alert fire again. */
+function cleanupStockKeys_(props, items) {
+  const live = {};
+  items.forEach(function (it) { live['stock:' + it.name + '|' + it.since] = 1; });
+  Object.keys(props.getProperties()).forEach(function (k) {
+    if (k.indexOf('stock:') === 0 && !live[k]) props.deleteProperty(k);
+  });
+}
+
+/** Mirrors the app's stock levels onto the Stock tab. Called from doPost. */
+function writeStockTab_(items) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(STOCK_SHEET) || ss.insertSheet(STOCK_SHEET);
+  sh.clear();
+  const head = ['ITEM', 'IN HAND', 'UNIT', 'COUNTING FROM', 'UPDATED'];
+  const stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
+  const body = items.map(function (it) {
+    return [String(it.name || ''), Number(it.qty) || 0, String(it.unit || ''),
+            String(it.since || ''), stamp];
+  });
+  sh.getRange(1, 1, 1, head.length).setValues([head]);
+  if (body.length) sh.getRange(2, 1, body.length, head.length).setValues(body);
+  return body.length;
 }

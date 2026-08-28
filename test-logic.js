@@ -48,16 +48,20 @@ const code = [
   'const pad=n=>String(n).padStart(2,"0");',
   'const iso=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;',
   grab('shouldAutoEnd'), grab('haversine'),
-  grab('usedSince'), grab('stockLeft'), grab('lowStock'), grab('stockLabel'),
+  grabConst('isoBack'),
+  grab('usedSince'), grab('rateOver'), grab('dailyUse'),
+  grab('stockLeft'), grab('stockDetail'), grab('trackedStock'),
+  grab('lowStock'), grab('stockLabel'),
   grab('series'), grab('vetSummary'),
 ].join('\n');
 
 // The extracted code reads free variables `entries` and `cfg`; bind them by
 // declaring them inside the same function scope.
 const api = new Function('T', 'esc',
-  'let entries=[],cfg={gap:12,stock:{}};\n' + code +
-  '\nreturn {shouldAutoEnd,haversine,usedSince,stockLeft,lowStock,stockLabel,series,vetSummary,' +
-  'setState:(e,c)=>{entries=e;cfg=c}};')(T, esc);
+  'let entries=[],cfg={gap:12,stock:{}},stockWin=14;\n' + code +
+  '\nreturn {shouldAutoEnd,haversine,usedSince,rateOver,dailyUse,stockLeft,stockDetail,' +
+  'trackedStock,lowStock,stockLabel,series,vetSummary,' +
+  'setWin:w=>{stockWin=w},setState:(e,c)=>{entries=e;cfg=c}};')(T, esc);
 
 const DAY = 864e5;
 const dayAgo = n => {
@@ -223,5 +227,73 @@ ok(Math.abs(api.haversine(51.5, -0.12, 51.5, -0.12)) < 1e-6, 'zero distance to s
 
 /* ---- the old AudioStore name must be fully retired ---- */
 eq(/\bAudioStore\b/.test(js), false, 'no dangling AudioStore references after the rename');
+
+/* ---- the Stock tab's own numbers ---- */
+{
+  // The shared fixture: 0.5 tablets a day, every day, restocked 20 days ago.
+  // test-sync.js asserts the Apps Script reaches the same three numbers from
+  // the same shape of data — that pairing is what catches the two drifting.
+  const e = [];
+  for (let i = 0; i < 20; i++) e.push({ type: 'pred', date: dayAgo(i), time: '11:30', qty: 0.5 });
+  api.setState(e, { gap: 12, stock: { pred: { qty: 30, since: dayAgo(20) } } });
+
+  const s = api.stockLeft('pred');
+  eq(s.left, 20, 'SHARED FIXTURE left: 30 in, 10 used');
+  eq(s.rate, 0.5, 'SHARED FIXTURE rate: 0.5 a day');
+  eq(s.days, 40, 'SHARED FIXTURE days: 20 left at 0.5 a day');
+
+  // the window is selectable, and a flat divide means it stays 0.5 either way
+  eq(api.stockLeft('pred', 7).rate, 0.5, 'the 7-day window sees the same steady rate');
+  eq(api.stockLeft('pred', 30).rate, 20 * 0.5 / 30, 'the 30-day window dilutes across days with no entries');
+  eq(api.stockLeft('pred', 30).days, Math.floor(20 / (10 / 30)), 'and predicts further out because of it');
+}
+{
+  // A course that stopped a week ago must not read as "still going".
+  const e = [];
+  for (let i = 7; i < 21; i++) e.push({ type: 'pred', date: dayAgo(i), time: '11:30', qty: 1 });
+  api.setState(e, { gap: 12, stock: { pred: { qty: 10, since: dayAgo(21) } } });
+  eq(api.stockLeft('pred', 7).days, null, 'nothing used in the last 7 days means no prediction');
+  eq(api.stockLeft('pred', 14).rate, 7 / 14, 'the 14-day window still sees the tail of the course');
+}
+{
+  // Trend: the last week against the last month.
+  const e = [];
+  for (let i = 0; i < 7; i++) e.push({ type: 'pred', date: dayAgo(i), time: '11:30', qty: 2 });
+  for (let i = 7; i < 30; i++) e.push({ type: 'pred', date: dayAgo(i), time: '11:30', qty: 1 });
+  api.setState(e, { gap: 12, stock: { pred: { qty: 100, since: dayAgo(30) } } });
+  const x = api.stockDetail('pred');
+  eq(x.r7, 2, 'the 7-day rate is the recent week');
+  eq(x.rPrev, 1, 'the baseline is the seven days before it, not a 30-day average');
+  ok(x.r7 > x.rPrev, 'so usage reads as rising');
+  eq(x.series.length, 14, 'the bar strip is 14 days long');
+  eq(x.series[13], 2, 'ending with today');
+  eq(x.used, 37, 'used since restock counts every dose on or after that day');
+  ok(x.out instanceof Date, 'a run-out date is produced');
+  eq(Math.round((x.out - new Date()) / 864e5), x.days, 'and it is days-left away');
+}
+{
+  // An item with a countdown but no recent use predicts nothing rather than
+  // dividing by zero and claiming Infinity days.
+  api.setState([], { gap: 12, stock: { pred: { qty: 5, since: dayAgo(3) } } });
+  const x = api.stockDetail('pred');
+  eq(x.days, null, 'no use logged means no prediction');
+  eq(x.out, null, 'and therefore no run-out date');
+  eq(x.left, 5, 'but what is in hand is still known');
+}
+{
+  // Stock kept for a type that no longer exists must not crash the tab.
+  api.setState([], { gap: 12, stock: { pred: { qty: 5, since: dayAgo(1) }, gone: { qty: 2, since: dayAgo(1) } } });
+  eq(api.trackedStock().join(','), 'pred', 'an unknown type is dropped, not rendered');
+}
+
+{
+  // Flat use must not read as rising just because the log is younger than the
+  // comparison window - the reason the baseline is last week, not 30 days.
+  const e = [];
+  for (let i = 0; i < 20; i++) e.push({ type: 'pred', date: dayAgo(i), time: '11:30', qty: 0.5 });
+  api.setState(e, { gap: 12, stock: { pred: { qty: 30, since: dayAgo(20) } } });
+  const x = api.stockDetail('pred');
+  eq(x.r7, x.rPrev, 'twenty flat days of use show no week-on-week change');
+}
 
 console.log(`\n  ${passed} checks passed\n`);
