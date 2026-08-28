@@ -411,9 +411,19 @@ function canonType_(raw) {
   return KNOWN_TYPES[clean] || null;
 }
 
+/** Identity of an incident, independent of which row it arrived on: the day,
+ *  plus the words, with the type dropped when it is only the generic "Note". */
+function incidentKey_(day, raw, notes, name) {
+  const body = ((name === 'Note' ? '' : raw) + ' ' + notes)
+    .replace(/[^a-zA-Z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ').trim().toLowerCase();
+  return day + '|' + body;
+}
+
 function bucket_(rows, from, to) {
   const out = { totals: {}, weights: [], glucose: [], incidents: [], urine: [], freeText: [] };
   const seenWeight = {};
+  const incidentSeen = {};
   rows.forEach(function (r) {
     const when = parseRowDate_(r.date, r.time);
     if (!when || when < from || when >= to) return;
@@ -441,11 +451,23 @@ function bucket_(rows, from, to) {
       out.urine.push(day + ' — ' + (r.notes || 'no values recorded'));
     }
 
-    // Tested against the raw text, so hand-typed events are counted too.
-    if (INCIDENT_RE.test(raw) || (r.notes && INCIDENT_RE.test(String(r.notes)))) {
-      out.incidents.push(day + ' — ' + raw + (r.notes ? ': ' + r.notes : ''));
+    // Tested against the raw text AND the notes, so hand-typed events count too.
+    const notes = r.notes ? String(r.notes) : '';
+    if (INCIDENT_RE.test(raw) || INCIDENT_RE.test(notes)) {
+      // Name the event, not the row it arrived on. A Canned Food row whose note
+      // says "soft poop" is a soft poop, not a feeding.
+      const label = INCIDENT_RE.test(raw)
+        ? raw + (notes ? ': ' + notes : '')
+        : (notes || raw);
+      // Unrecognised sheet types get pulled into the app as notes and pushed
+      // back as type "Note", so the same event is in the sheet twice. Collapse
+      // them, keeping whichever copy carries the more specific type.
+      const key = incidentKey_(day, raw, notes, name);
+      const better = (name !== 'Note' && name !== null) || !incidentSeen[key];
+      if (!incidentSeen[key] || better) incidentSeen[key] = day + ' — ' + label;
     }
   });
+  Object.keys(incidentSeen).forEach(function (k) { out.incidents.push(incidentSeen[k]); });
   // Both lists lead with the date, so a plain sort puts them in date order.
   out.incidents.sort();
   out.freeText.sort();
@@ -501,12 +523,18 @@ function reportPrompt_(stats) {
   ].join('\n');
 }
 
+/* A busy model answers 503, and this job only runs once a month — one attempt
+ * is not enough. Back off and try again; 5 + 10 + 20 seconds is nothing against
+ * the six-minute script limit. */
+const RETRY_CODES = [429, 500, 502, 503, 504];
+const RETRIES = 4;
+
 function askGemini_(prompt) {
   const key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
   if (!key) return null;   // caller turns this into the numbers-only email
   const url = 'https://generativelanguage.googleapis.com/v1beta/models/' +
               GEMINI_MODEL + ':generateContent?key=' + encodeURIComponent(key);
-  const res = UrlFetchApp.fetch(url, {
+  const params = {
     method: 'post',
     contentType: 'application/json',
     payload: JSON.stringify({
@@ -514,17 +542,28 @@ function askGemini_(prompt) {
       generationConfig: { temperature: 0.3, maxOutputTokens: 1200 }
     }),
     muteHttpExceptions: true
-  });
-  const code = res.getResponseCode();
-  const text = res.getContentText();
-  if (code !== 200) throw new Error('Gemini HTTP ' + code + ' — ' + text.slice(0, 300));
-  const data = JSON.parse(text);
-  const cand = data && data.candidates && data.candidates[0];
-  const parts = cand && cand.content && cand.content.parts;
-  if (!parts || !parts.length) {
-    throw new Error('Gemini returned no text — ' + text.slice(0, 300));
+  };
+
+  let last = '';
+  for (let attempt = 0; attempt < RETRIES; attempt++) {
+    const res = UrlFetchApp.fetch(url, params);
+    const code = res.getResponseCode();
+    const text = res.getContentText();
+
+    if (code === 200) {
+      const data = JSON.parse(text);
+      const cand = data && data.candidates && data.candidates[0];
+      const parts = cand && cand.content && cand.content.parts;
+      if (!parts || !parts.length) throw new Error('Gemini returned no text — ' + text.slice(0, 300));
+      const out = parts.map(function (p) { return p.text || ''; }).join('').trim();
+      if (!out) throw new Error('Gemini returned an empty message');
+      return out;
+    }
+
+    last = 'Gemini HTTP ' + code + ' — ' + text.slice(0, 300);
+    // A bad key or a retired model will never fix itself; don't burn four tries.
+    if (RETRY_CODES.indexOf(code) === -1) throw new Error(last);
+    if (attempt < RETRIES - 1) Utilities.sleep(Math.pow(2, attempt) * 5000);
   }
-  const out = parts.map(function (p) { return p.text || ''; }).join('').trim();
-  if (!out) throw new Error('Gemini returned an empty message');
-  return out;
+  throw new Error(last + '  (gave up after ' + RETRIES + ' attempts)');
 }

@@ -45,6 +45,8 @@ function frozenDate(nowMs) {
 function load(nowMs, rows, opts) {
   opts = opts || {};
   const mail = [];
+  const fetches = [];
+  const slept = [];
   const props = Object.assign({}, opts.props || {});
   const values = [['header'], ['header']].concat(
     rows.map(r => ['', r[0], r[1], r[2], r[3] === undefined ? '' : r[3], r[4] || ''])
@@ -52,7 +54,7 @@ function load(nowMs, rows, opts) {
 
   const stubs = {
     Date: frozenDate(nowMs),
-    Utilities: { formatDate },
+    Utilities: { formatDate, sleep: () => { slept.push(1); } },
     Session: { getScriptTimeZone: () => 'Europe/London' },
     Logger: { log: () => {} },
     MailApp: { sendEmail: (to, subject, body) => mail.push({ to, subject, body }) },
@@ -69,12 +71,17 @@ function load(nowMs, rows, opts) {
       newTrigger: () => { throw new Error('trigger creation not exercised'); },
     },
     UrlFetchApp: {
-      fetch: () => ({
-        getResponseCode: () => (opts.geminiCode === undefined ? 200 : opts.geminiCode),
-        getContentText: () => (opts.geminiBody === undefined
-          ? JSON.stringify({ candidates: [{ content: { parts: [{ text: 'PROSE' }] } }] })
-          : opts.geminiBody),
-      }),
+      fetch: () => {
+        // opts.geminiSeq lets a test hand back 503 then 200 and watch the retry.
+        const step = opts.geminiSeq ? opts.geminiSeq[Math.min(fetches.length, opts.geminiSeq.length - 1)] : null;
+        fetches.push(1);
+        const code = step ? step.code : (opts.geminiCode === undefined ? 200 : opts.geminiCode);
+        const body = step && step.body !== undefined ? step.body
+          : (opts.geminiBody === undefined
+            ? JSON.stringify({ candidates: [{ content: { parts: [{ text: 'PROSE' }] } }] })
+            : opts.geminiBody);
+        return { getResponseCode: () => code, getContentText: () => body };
+      },
     },
     SpreadsheetApp: {
       getActiveSpreadsheet: () => ({
@@ -91,9 +98,9 @@ function load(nowMs, rows, opts) {
   const body = src + `
     ;return {readRows, parseRowDate_, slotsToCheck_, checkShotDue, cleanupAlertKeys_,
              numFrom_, bucket_, buildReportStats_, sendMonthlyReport, askGemini_,
-             reportPrompt_, fmtDay_, canonType_};`;
+             reportPrompt_, fmtDay_, canonType_, incidentKey_};`;
   const api = new Function(...names, body)(...names.map(n => stubs[n]));
-  return { api, mail, props };
+  return { api, mail, props, fetches, slept };
 }
 
 const at = (y, m, d, h, mi) => new Date(y, m - 1, d, h, mi, 0).getTime();
@@ -385,6 +392,81 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   const src = require('fs').readFileSync(require('path').join(__dirname, 'zuse-sync-code.gs.txt'), 'utf8');
   ok(!/gemini-2\.5-flash/.test(src), 'the retired gemini-2.5-flash is gone');
   ok(/const GEMINI_MODEL = 'gemini-[\d.]+-flash'/.test(src), 'a concrete flash model is pinned');
+}
+
+/* ============ transient API failures (a live run hit HTTP 503) ============
+   This job runs once a month. One attempt against a busy model is not enough. */
+{
+  const { api, mail, fetches, slept } = load(at(2026, 8, 28, 12, 0), [], {
+    props: { GEMINI_API_KEY: 'k' },
+    geminiSeq: [{ code: 503, body: 'busy' }, { code: 503, body: 'busy' },
+                { code: 200 }],
+  });
+  api.sendMonthlyReport();
+  eq(fetches.length, 3, 'retries past two 503s and succeeds on the third');
+  eq(slept.length, 2, 'and backs off between attempts');
+  eq(mail.length, 1, 'one email');
+  ok(/^PROSE/.test(mail[0].body), 'the write-up made it after the retries');
+}
+{
+  const { api, mail, fetches } = load(at(2026, 8, 28, 12, 0), [], {
+    props: { GEMINI_API_KEY: 'k' }, geminiCode: 503, geminiBody: 'busy',
+  });
+  api.sendMonthlyReport();
+  eq(fetches.length, 4, 'gives up after four attempts');
+  eq(mail.length, 1, 'and still emails the figures');
+  ok(/gave up after 4 attempts/.test(mail[0].body), 'saying it gave up');
+  ok(/THIS PERIOD/.test(mail[0].body), 'with the numbers intact');
+}
+{
+  // A retired model or a bad key never fixes itself - do not burn four tries.
+  const { api, fetches } = load(at(2026, 8, 28, 12, 0), [], {
+    props: { GEMINI_API_KEY: 'k' }, geminiCode: 404, geminiBody: 'no such model',
+  });
+  api.sendMonthlyReport();
+  eq(fetches.length, 1, 'a 404 fails immediately without retrying');
+}
+
+/* ============ duplicated incidents (the second live run reported 17 for 9) ====
+   Unrecognised sheet types are pulled into the app as notes and pushed back as
+   type "Note", so the same event sits in the sheet twice. */
+{
+  const { api } = load(at(2026, 8, 28, 12, 0), []);
+  eq(api.incidentKey_('2026-08-11', 'Note', 'diarrhea again \uD83D\uDE15', 'Note'),
+     api.incidentKey_('2026-08-11', 'diarrhea again \uD83D\uDE15', '', null),
+     'the Note mirror and the original share one identity');
+  ok(api.incidentKey_('2026-08-11', 'Note', 'diarrhea', 'Note') !==
+     api.incidentKey_('2026-08-12', 'Note', 'diarrhea', 'Note'),
+     'but the same words on a different day do not');
+}
+{
+  const d = (day) => cell(2026, 8, day), t = (day, h) => cell(2026, 8, day, h, 0);
+  const { api } = load(at(2026, 8, 28, 12, 0), [
+    // the exact duplicate pair from the live report
+    [d(11), t(11, 9), 'Note', '', 'diarrhea again \uD83D\uDE15'],
+    [d(11), t(11, 9), 'diarrhea again \uD83D\uDE15', '', ''],
+    // and one where the notes carry the detail on both copies
+    [d(12), t(12, 9), 'Note', '', 'diarrhea \uD83D\uDE15: le neg. Sg 1.05'],
+    [d(12), t(12, 9), 'diarrhea \uD83D\uDE15', '', 'le neg. Sg 1.05'],
+    // a real incident hiding in the note of an unrelated row
+    [d(18), t(18, 9), 'Canned Food', '2', 'soft poop, but only runny at the very end'],
+    // a clean typed one
+    [d(24), t(24, 9), 'Was sick', '', ''],
+  ]);
+  const txt = api.buildReportStats_(30).text;
+  const n = txt.match(/  A: (\d+)/);
+  eq(n && n[1], '4', 'six rows, four distinct incidents');
+  // Scope the counts to the incident block: an unrecognised row legitimately
+  // appears again under FREE-TEXT ROWS, which is not a duplicate.
+  const incBlock = txt.split('INCIDENTS')[1].split('URINE')[0];
+  eq((incBlock.match(/diarrhea again/g) || []).length, 1, 'the 11 Aug event is listed once');
+  eq((incBlock.match(/Sg 1\.05/g) || []).length, 1, 'the 12 Aug event is listed once');
+  ok(!/Note: diarrhea/.test(txt), 'the generic "Note:" prefix is never the label');
+  ok(/soft poop, but only runny/.test(txt), 'an incident in a note is still reported');
+  ok(!/Canned Food: soft poop/.test(txt),
+     'and is labelled by the event, not by the row it arrived on');
+  // the food row must still count as food
+  ok(/Canned Food: 2 over 1 entries/.test(txt), 'that row is also still a feeding');
 }
 
 console.log(`\n  ${passed} checks passed\n`);
