@@ -780,6 +780,11 @@ function writeStockTab_(items) {
             String(it.since || ''), stamp];
   });
   sh.getRange(1, 1, 1, head.length).setValues([head]);
+  // COUNTING FROM is dd/MM/yyyy. This tab is created from scratch, so unlike
+  // the main sheet's date column it has no format history - left alone, Sheets
+  // would read "05/08/2026" through the spreadsheet's locale and could land on
+  // 8 May. Pinning the column to text keeps it the string that was written.
+  sh.getRange(2, 4, Math.max(body.length, 1), 1).setNumberFormat('@');
   if (body.length) sh.getRange(2, 1, body.length, head.length).setValues(body);
   return body.length;
 }

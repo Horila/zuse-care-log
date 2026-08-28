@@ -340,7 +340,7 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
   <section>
     <div class="shead"><h2>Reminders</h2></div>
     <div class="card">
-      <p class="note">These levels go up to the <b>Stock</b> tab of the Google Sheet every time you sync. The Apps Script checks them each morning; once something drops under a week of supply it emails you and puts an event in your Google Calendar for the day it is due to run out &mdash; so the reminder reaches your phone with the app closed. Run <b>installStockAlerts</b> in the script once to switch it on.</p>
+      <p class="note">These levels go up to the <b>Stock</b> tab of the Google Sheet every time you sync. The Apps Script checks them each morning; once something drops under a week of supply it emails you and puts an event in your Google Calendar for the day it is due to run out &mdash; so the reminder reaches your phone with the app closed. Run <b>installStockAlerts</b> in the script once to switch it on. Sync after restocking &mdash; the morning check reads what was last pushed, not what is on this phone.</p>
       <button class="btn sec" style="margin-top:9px" id="stockPushBtn" onclick="pushStock()">Send stock to the sheet now</button>
     </div>
   </section>

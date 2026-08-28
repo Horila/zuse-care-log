@@ -52,6 +52,7 @@ function load(nowMs, rows, opts) {
     rows.map(r => ['', r[0], r[1], r[2], r[3] === undefined ? '' : r[3], r[4] || ''])
   );
   const events = [];
+  const formats = [];
 
   /** A sheet that can be cleared and written to, so writeStockTab_ is exercised
    *  for real rather than mocked away. */
@@ -63,6 +64,7 @@ function load(nowMs, rows, opts) {
       getLastRow: () => v.length,
       getRange: (r, c) => ({
         getValue: () => (v[r - 1] || [])[c - 1],
+        setNumberFormat: f => { formats.push({ r, c, f }); },
         setValues: rowsIn => {
           while (v.length < r - 1 + rowsIn.length) v.push([]);
           rowsIn.forEach((row, i) => { v[r - 1 + i] = row.slice(); });
@@ -151,7 +153,7 @@ function load(nowMs, rows, opts) {
   const api = new Function(...names, body)(...names.map(n => stubs[n]));
   const post = o => JSON.parse(api.doPost({ postData: { contents: JSON.stringify(
     Object.assign({ secret: 'CHANGE_ME_TO_YOUR_OWN_SECRET' }, o)) } }).__out);
-  return { api, mail, props, fetches, slept, events, post, stock: () => stockTab };
+  return { api, mail, props, fetches, slept, events, formats, post, stock: () => stockTab };
 }
 
 const at = (y, m, d, h, mi) => new Date(y, m - 1, d, h, mi, 0).getTime();
@@ -632,7 +634,7 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
 
 /* ============ the two new POST actions ==================================== */
 {
-  const { api, post, stock } = load(at(2026, 8, 28, 12, 0), []);
+  const { api, post, stock, formats } = load(at(2026, 8, 28, 12, 0), []);
   const r = post({ action: 'stock', items: [
     { name: 'Prednisolone', qty: 12, unit: 'tablets', since: '20/08/2026' },
     { name: 'Insulin', qty: 300, unit: 'units', since: '15/08/2026' },
@@ -645,6 +647,10 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   // and the round trip reads back as the same thing
   eq(api.readStockTab_()[0].qty, 12, 'what was written is what is read');
   eq(api.readStockTab_()[1].since, '15/08/2026', 'dates survive the round trip');
+  // A fresh tab has no format history, so an unpinned dd/MM/yyyy string is at
+  // the mercy of the spreadsheet's locale: 05/08 could come back as 8 May.
+  ok(formats.some(f => f.c === 4 && f.f === '@'),
+     'the COUNTING FROM column is pinned to text before anything is written');
 }
 {
   // Re-pushing must replace, never append: stale items would go on alerting.
@@ -693,6 +699,28 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   eq(body.trimEnd(), SRC.slice(SRC.indexOf('function doPost(e) {')).trimEnd(),
      'the paste file is byte-for-byte the tail of the real script');
   ok(/Manage deployments/.test(slice), 'and says the web app has to be redeployed');
+}
+
+{
+  /* The whole chain in one go: the app pushes, the sheet stores, the morning
+     check reads it back and forecasts. Each half is tested above; this is the
+     join, where a date that stopped being a string would go unnoticed. */
+  const rows = [];
+  for (let d = 15; d <= 28; d++) rows.push([cell(2026, 8, d), cell(2026, 8, d, 11, 30), 'Insulin', '16', '']);
+  const { api, post, mail, events } = load(at(2026, 8, 28, 8, 0), rows);
+  eq(post({ action: 'stock', items: [
+    { name: 'Insulin', qty: 300, unit: 'units', since: '15/08/2026' },
+  ] }).saved, 1, 'the app pushes one item');
+
+  const it = api.readStockTab_()[0];
+  eq(it.since, '15/08/2026', 'and it reads back as the string that was written');
+  const f = api.stockForecast_(it, api.readRows(), new Date());
+  eq(f.left, 76, 'the forecast works off the pushed baseline');
+  eq(f.days, 4, 'and predicts four days');
+
+  eq(api.checkStock(), 1, 'so the morning check finds it low');
+  eq(mail.length, 1, 'emails once');
+  eq(events.length, 1, 'and books the reminder');
 }
 
 console.log(`\n  ${passed} checks passed\n`);
