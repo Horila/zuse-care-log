@@ -91,7 +91,7 @@ function load(nowMs, rows, opts) {
   const body = src + `
     ;return {readRows, parseRowDate_, slotsToCheck_, checkShotDue, cleanupAlertKeys_,
              numFrom_, bucket_, buildReportStats_, sendMonthlyReport, askGemini_,
-             reportPrompt_, fmtDay_};`;
+             reportPrompt_, fmtDay_, canonType_};`;
   const api = new Function(...names, body)(...names.map(n => stubs[n]));
   return { api, mail, props };
 }
@@ -320,6 +320,71 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   ok(/Do NOT suggest, adjust, or comment on insulin doses/.test(p), 'dose advice is forbidden in the prompt');
   ok(/do NOT give clinical advice/i.test(p), 'clinical advice is forbidden in the prompt');
   ok(p.indexOf('FIGURES') !== -1, 'the figures are what it reasons over');
+}
+
+/* ============ real-sheet messiness (from an actual monthly report) ============
+   The TYPE column has been used as free text for years. The first live run
+   split Chicken Slice in two and reported 3 incidents where there were 8. */
+{
+  const { api } = load(at(2026, 8, 28, 12, 0), []);
+  eq(api.canonType_('Chicken Slice \uD83C\uDF57'), 'Chicken Slice', 'emoji stripped off a known type');
+  eq(api.canonType_('  canned FOOD '), 'Canned Food', 'case and padding normalised');
+  eq(api.canonType_('Treats'), 'Treat', 'plural folded onto the singular');
+  eq(api.canonType_('Frontline Wormer'), 'Wormer / Flea', 'old product name folded in');
+  eq(api.canonType_('weewee'), 'Wee Wee', 'spacing variant folded in');
+  eq(api.canonType_('tummy rumbling'), null, 'a hand-typed note is not a type');
+  eq(api.canonType_('diarrhea again \uD83D\uDE15'), null, 'nor is a hand-typed variant of one');
+}
+{
+  const now = at(2026, 8, 28, 12, 0);
+  const d = (day) => cell(2026, 8, day);
+  const t = (day, h) => cell(2026, 8, day, h, 0);
+  const { api } = load(now, [
+    // the two spellings that were being counted as different foods
+    [d(10), t(10, 9), 'Chicken Slice', '158', ''],
+    [d(11), t(11, 9), 'Chicken Slice \uD83C\uDF57', '1202', ''],
+    // incidents: one clean, four hand-typed, all real
+    [d(12), t(12, 9), 'Diarrhea', '', ''],
+    [d(13), t(13, 9), 'diarrhea again \uD83D\uDE15', '', ''],
+    [d(14), t(14, 9), 'diarrhea still \uD83D\uDE14', '', ''],
+    [d(15), t(15, 9), 'wee we/runny poop', '', ''],
+    [d(16), t(16, 9), 'soft poop', '', ''],
+    // not incidents, however much they look like one
+    [d(17), t(17, 9), 'Wee Wee', '', ''],
+    [d(18), t(18, 9), 'wee wee + poop', '', ''],
+    // duplicate weigh-in, same day same value
+    [d(19), t(19, 9), 'Weight', '16.3', ''],
+    [d(19), t(19, 10), 'Weight', '16.3', ''],
+    // an incident recorded only in the notes column
+    [d(20), t(20, 9), 'Note', '', 'was sick after breakfast'],
+  ]);
+  const txt = api.buildReportStats_(30).text;
+
+  ok(/Chicken Slice: 1360 over 2 entries/.test(txt),
+     'both Chicken Slice spellings add up to one total');
+  ok(!/Chicken Slice \uD83C\uDF57:/.test(txt), 'the emoji spelling is not a separate line');
+
+  const inc = txt.match(/  A: (\d+)/);
+  eq(inc && inc[1], '6', 'five hand-typed or clean incidents plus the one in a note');
+  ok(/diarrhea still/.test(txt), 'a hand-typed diarrhea entry is counted');
+  ok(/wee we\/runny poop/.test(txt), 'a runny-poop entry is counted');
+  ok(/was sick after breakfast/.test(txt), 'an incident living only in the notes column is caught');
+
+  ok(!/^\s+2026-08-17 — Wee Wee/m.test(txt), 'an ordinary wee wee is not an incident');
+  ok(!/wee wee \+ poop/.test(txt.split('INCIDENTS')[1] || ''), 'nor is a normal wee wee + poop');
+
+  eq((txt.match(/16\.3 kg on 2026-08-19/g) || []).length, 1, 'the duplicate weigh-in is reported once');
+
+  ok(!/^  Weight: /m.test(txt), 'Weight is not also totalled as a quantity');
+  ok(!/^  Note: /m.test(txt), 'Note is not totalled either');
+  ok(/FREE-TEXT ROWS, no matching type \(A\): 5/.test(txt), 'all five hand-typed rows are listed separately');
+  ok(!/^  diarrhea again/m.test(txt.split('FREE-TEXT')[0]), 'and never as their own total');
+}
+{
+  // The model that 404'd on the first live run must not creep back.
+  const src = require('fs').readFileSync(require('path').join(__dirname, 'zuse-sync-code.gs.txt'), 'utf8');
+  ok(!/gemini-2\.5-flash/.test(src), 'the retired gemini-2.5-flash is gone');
+  ok(/const GEMINI_MODEL = 'gemini-[\d.]+-flash'/.test(src), 'a concrete flash model is pinned');
 }
 
 console.log(`\n  ${passed} checks passed\n`);
