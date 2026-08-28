@@ -123,3 +123,354 @@ function jsonOut(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
 }
+
+/* ==========================================================================
+ * MISSED-SHOT REMINDER
+ *
+ * The app itself cannot do this. A PWA has no reliable way to wake itself up
+ * in the background — a service worker is stopped when the phone sleeps, and
+ * real web push needs a push server. This script is already deployed and
+ * already runs on Google's clock, so the reminder lives here instead.
+ *
+ * SETUP (one-time, after pasting this file in):
+ * 1. Set ALERT_EMAIL below to the address you actually read on your phone.
+ * 2. Check AM_TIME / PM_TIME match the times set in the app's Setup screen.
+ * 3. In the Apps Script editor, pick "installReminders" from the function
+ *    dropdown and click Run. Authorize when asked.
+ * 4. That's it — it now checks every 15 minutes and emails you once per
+ *    missed slot. Run "installReminders" again any time you change the times;
+ *    it clears the old trigger first, so it never doubles up.
+ *
+ * To turn it off: Apps Script editor -> Triggers (clock icon) -> delete.
+ * ========================================================================== */
+
+const ALERT_EMAIL = '';            // e.g. 'you@example.com' — blank disables alerts
+const AM_TIME = '11:30';           // 24h, must match the app's Setup screen
+const PM_TIME = '23:30';
+const GRACE_MIN = 30;              // how late a shot can be before you're told
+const ALERT_WINDOW_H = 5;          // stop nagging about a slot this long after it
+const LOOKBACK_H = 2;              // a shot this far before the slot still counts
+
+/** Installs (or reinstalls) the 15-minute checker. Run this by hand once. */
+function installReminders() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'checkShotDue') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('checkShotDue').timeBased().everyMinutes(15).create();
+  const who = ALERT_EMAIL || '(nobody — ALERT_EMAIL is blank)';
+  Logger.log('Reminder installed. Checking every 15 min, emailing ' + who);
+}
+
+/** Runs on the trigger. Emails once per missed slot, never twice. */
+function checkShotDue() {
+  if (!ALERT_EMAIL) return;
+  const now = new Date();
+  const rows = readRows();
+
+  // Every insulin time logged, as real dates, so a slot just before midnight
+  // can still be judged from the far side of midnight.
+  const shots = [];
+  rows.forEach(function (r) {
+    if (String(r.type).trim().toLowerCase() !== 'insulin') return;
+    const d = parseRowDate_(r.date, r.time);
+    if (d) shots.push(d);
+  });
+
+  slotsToCheck_(now).forEach(function (slot) {
+    const from = new Date(slot.at.getTime() - LOOKBACK_H * 3600e3);
+    const covered = shots.some(function (d) { return d >= from && d <= now; });
+    if (covered) return;
+
+    const key = 'alerted:' + slot.key;
+    const props = PropertiesService.getScriptProperties();
+    if (props.getProperty(key)) return;
+
+    const last = shots.length ? new Date(Math.max.apply(null, shots)) : null;
+    const lateMin = Math.round((now - slot.at) / 60000);
+    MailApp.sendEmail(
+      ALERT_EMAIL,
+      'Zuse: ' + slot.name + ' insulin not logged',
+      'The ' + slot.name + ' shot was due at ' + slot.hhmm + '.\n' +
+      'It is now ' + fmtLocal_(now) + ' — ' + lateMin + ' minutes past, and nothing is logged.\n\n' +
+      (last ? 'Last insulin logged: ' + fmtLocal_(last) + '\n\n' : 'No insulin has ever been logged.\n\n') +
+      'If he has had it, log it in the app so this stops chasing you.\n' +
+      '(One email per missed shot. Nothing else is sent.)'
+    );
+    props.setProperty(key, '1');
+    cleanupAlertKeys_(props);
+  });
+}
+
+/** Yesterday's and today's slots, keeping only those now sitting in the
+ *  "late enough to mention, not so late it's history" window. */
+function slotsToCheck_(now) {
+  const out = [];
+  [-1, 0].forEach(function (dayOffset) {
+    [['morning', AM_TIME], ['night', PM_TIME]].forEach(function (pair) {
+      const parts = String(pair[1]).split(':');
+      const at = new Date(now.getFullYear(), now.getMonth(), now.getDate() + dayOffset,
+                          Number(parts[0]), Number(parts[1]), 0);
+      const late = now - at;
+      if (late < GRACE_MIN * 60e3) return;
+      if (late > ALERT_WINDOW_H * 3600e3) return;
+      out.push({
+        name: pair[0],
+        hhmm: pair[1],
+        at: at,
+        key: Utilities.formatDate(at, Session.getScriptTimeZone(), 'yyyy-MM-dd') + ':' + pair[0]
+      });
+    });
+  });
+  return out;
+}
+
+/** 'dd/MM/yyyy' + 'h:mm am' -> Date, or null if either is unparseable. */
+function parseRowDate_(dmy, t12) {
+  const dm = String(dmy).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  const tm = String(t12).trim().match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/i);
+  if (!dm || !tm) return null;
+  let h = Number(tm[1]) % 12;
+  if (/pm/i.test(tm[3])) h += 12;
+  return new Date(Number(dm[3]), Number(dm[2]) - 1, Number(dm[1]), h, Number(tm[2]), 0);
+}
+
+function fmtLocal_(d) {
+  return Utilities.formatDate(d, Session.getScriptTimeZone(), 'EEE d MMM, h:mm a');
+}
+
+/** Script properties are capped, and one key per slot adds up. Keep a fortnight. */
+function cleanupAlertKeys_(props) {
+  const cutoff = Utilities.formatDate(new Date(Date.now() - 14 * 864e5),
+                                      Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const all = props.getProperties();
+  Object.keys(all).forEach(function (k) {
+    if (k.indexOf('alerted:') === 0 && k.substring(8, 18) < cutoff) props.deleteProperty(k);
+  });
+}
+
+/* ==========================================================================
+ * MONTHLY REPORT (written by Gemini, emailed to you)
+ *
+ * On the 1st of each month this reads the last 30 days off the sheet, plus the
+ * 30 days before that for comparison, and emails you a few paragraphs of plain
+ * English: what moved, what didn't, what's worth mentioning to the vet.
+ *
+ * Only aggregates are sent to the model — totals, averages, weigh-ins, glucose
+ * readings and the incident list. Never the whole sheet. It is cheaper, and
+ * there is far less for the model to get wrong.
+ *
+ * The API key is NOT in this file and must never be. It lives in the script's
+ * own properties, behind your Google account.
+ *
+ * SETUP (one-time):
+ * 1. Get a free key at https://aistudio.google.com/apikey
+ * 2. Apps Script editor -> Project Settings (gear) -> Script Properties ->
+ *    Add script property.  Property: GEMINI_API_KEY   Value: <your key>
+ * 3. Make sure ALERT_EMAIL above is set — the report goes to the same address.
+ * 4. Run "runMonthlyReportNow" once to check it works. You should get an email
+ *    within a minute or so.
+ * 5. Run "installMonthlyReport" to put it on the monthly schedule.
+ *
+ * If the key is missing or Google's API is down, you still get the email — it
+ * just carries the raw numbers and says what went wrong. A report that fails
+ * quietly is worse than no report.
+ * ========================================================================== */
+
+const GEMINI_MODEL = 'gemini-2.5-flash';
+const REPORT_DAYS = 30;      // length of each comparison window
+const REPORT_HOUR = 9;       // hour of the 1st to send on (24h, script timezone)
+
+/** Puts the report on the 1st of every month. Run this by hand once. */
+function installMonthlyReport() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'sendMonthlyReport') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('sendMonthlyReport')
+    .timeBased().onMonthDay(1).atHour(REPORT_HOUR).create();
+  Logger.log('Monthly report installed: 1st of each month, around ' +
+             REPORT_HOUR + ':00, to ' + (ALERT_EMAIL || '(nobody — ALERT_EMAIL is blank)'));
+}
+
+/** Same thing, on demand. Use this to test the setup. */
+function runMonthlyReportNow() {
+  sendMonthlyReport();
+  Logger.log('Report sent to ' + ALERT_EMAIL);
+}
+
+function sendMonthlyReport() {
+  if (!ALERT_EMAIL) {
+    Logger.log('ALERT_EMAIL is blank — nothing sent.');
+    return;
+  }
+  const stats = buildReportStats_(REPORT_DAYS);
+  let body, note = '';
+  try {
+    const prose = askGemini_(reportPrompt_(stats));
+    if (!prose) {
+      note = 'No GEMINI_API_KEY is set in Script Properties, so this month has ' +
+             'the numbers but no write-up.\n\n';
+      body = note + stats.text;
+    } else {
+      body = prose + '\n\n' +
+             '-------------------------------------------\n' +
+             'The figures this was written from:\n\n' + stats.text;
+    }
+  } catch (err) {
+    // Never swallow it — send the numbers and say what broke.
+    body = 'The write-up failed this month (' + err + '), so here are the raw ' +
+           'figures instead.\n\n' + stats.text;
+  }
+  MailApp.sendEmail(ALERT_EMAIL, 'Zuse: monthly report — ' + stats.label, body);
+}
+
+/* ---------------- the numbers ---------------- */
+
+/** Two windows: the last `days`, and the `days` before that. */
+function buildReportStats_(days) {
+  const rows = readRows();
+  const now = new Date();
+  const startA = new Date(now.getTime() - days * 864e5);
+  const startB = new Date(now.getTime() - 2 * days * 864e5);
+  const A = bucket_(rows, startA, now);
+  const B = bucket_(rows, startB, startA);
+
+  const L = [];
+  L.push('THIS PERIOD  (A): ' + fmtDay_(startA) + ' to ' + fmtDay_(now) + ', ' + days + ' days');
+  L.push('PREVIOUS     (B): ' + fmtDay_(startB) + ' to ' + fmtDay_(startA) + ', ' + days + ' days');
+  L.push('');
+  L.push('TOTALS BY TYPE  (A now, B before)');
+
+  const names = {};
+  [A, B].forEach(function (b) {
+    Object.keys(b.totals).forEach(function (k) { names[k] = b.totals[k].name; });
+  });
+  Object.keys(names).sort().forEach(function (k) {
+    const a = A.totals[k] || { qty: 0, count: 0 };
+    const b = B.totals[k] || { qty: 0, count: 0 };
+    L.push('  ' + names[k] + ': ' +
+      round_(a.qty) + ' over ' + a.count + ' entries (' + perDay_(a.qty, days) + '/day)' +
+      '   was  ' +
+      round_(b.qty) + ' over ' + b.count + ' entries (' + perDay_(b.qty, days) + '/day)');
+  });
+
+  L.push('');
+  L.push('WEIGHT (A): ' + (A.weights.length ? A.weights.join(', ') : 'no weigh-ins'));
+  L.push('WEIGHT (B): ' + (B.weights.length ? B.weights.join(', ') : 'no weigh-ins'));
+  L.push('GLUCOSE (A): ' + (A.glucose.length ? A.glucose.join(', ') : 'no readings'));
+  L.push('GLUCOSE (B): ' + (B.glucose.length ? B.glucose.join(', ') : 'no readings'));
+
+  L.push('');
+  L.push('INCIDENTS — sick, diarrhea, pee accidents');
+  L.push('  A: ' + A.incidents.length + (A.incidents.length ? '' : ' (none)'));
+  A.incidents.forEach(function (s) { L.push('    ' + s); });
+  L.push('  B: ' + B.incidents.length + (B.incidents.length ? '' : ' (none)'));
+  B.incidents.forEach(function (s) { L.push('    ' + s); });
+
+  if (A.urine.length) {
+    L.push('');
+    L.push('URINE TESTS (A):');
+    A.urine.forEach(function (s) { L.push('  ' + s); });
+  }
+
+  return { text: L.join('\n'), label: fmtDay_(startA) + ' to ' + fmtDay_(now) };
+}
+
+/** Everything in [from, to), keyed by lowercased sheet type. */
+function bucket_(rows, from, to) {
+  const out = { totals: {}, weights: [], glucose: [], incidents: [], urine: [] };
+  const INCIDENT = ['was sick', 'diarrhea', 'pee accident'];
+  rows.forEach(function (r) {
+    const when = parseRowDate_(r.date, r.time);
+    if (!when || when < from || when >= to) return;
+    const type = String(r.type).trim();
+    const key = type.toLowerCase();
+    const n = numFrom_(r.qty);
+
+    const t = out.totals[key] || (out.totals[key] = { name: type, qty: 0, count: 0 });
+    t.qty += n;
+    t.count++;
+
+    const day = fmtDay_(when);
+    if (key === 'weight') out.weights.push(n + ' kg on ' + day);
+    else if (key === 'glucose') out.glucose.push(n + ' on ' + day);
+    else if (key === 'urine test') out.urine.push(day + ' — ' + (r.notes || 'no values recorded'));
+    else if (INCIDENT.indexOf(key) !== -1) {
+      out.incidents.push(day + ' — ' + type + (r.notes ? ': ' + r.notes : ''));
+    }
+  });
+  return out;
+}
+
+/** Sheet quantities mix plain numbers with number+unit text ("8 Units"). */
+function numFrom_(v) {
+  if (v === '' || v == null) return 0;
+  const m = String(v).trim().match(/^(-?\d+(?:\.\d+)?)/);
+  return m ? Number(m[1]) : 0;
+}
+function round_(n) { return Math.round(n * 100) / 100; }
+function perDay_(n, days) { return (n / days).toFixed(2); }
+function fmtDay_(d) {
+  return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
+/* ---------------- the model ---------------- */
+
+function reportPrompt_(stats) {
+  return [
+    'You are writing a short monthly update for the owner of Zuse, a diabetic dog,',
+    'from his care log. The owner will read it, and may forward it to their vet.',
+    '',
+    'Write 3 to 5 short paragraphs of plain English. Rules:',
+    '- Quote the actual numbers. "insulin averaged 8.4 units a day, up from 7.9" —',
+    '  never "insulin usage increased".',
+    '- Compare period A against period B and say which way things moved.',
+    '- If something did not change, say so plainly. Do not manufacture a trend',
+    '  out of noise, and do not pad the report to fill space.',
+    '- Call out anything a vet would want flagged: weight moving, glucose readings,',
+    '  a cluster of sick or diarrhea entries, walks or food dropping off.',
+    '- Missing data is a fact worth stating (e.g. no weigh-in this period), not a',
+    '  gap to guess across.',
+    '',
+    'Hard limits:',
+    '- Do NOT suggest, adjust, or comment on insulin doses or any medication dose.',
+    '- Do NOT diagnose, and do NOT give clinical advice or reassurance.',
+    '- You are describing what the log says. Anything beyond that is the vet\'s job.',
+    '  If the numbers look concerning, the only recommendation you may make is to',
+    '  raise it with the vet.',
+    '',
+    'No headings, no bullet lists, no preamble like "Here is your report".',
+    'Start with the sentence that matters most.',
+    '',
+    'THE LOG:',
+    '',
+    stats.text
+  ].join('\n');
+}
+
+function askGemini_(prompt) {
+  const key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!key) return null;   // caller turns this into the numbers-only email
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' +
+              GEMINI_MODEL + ':generateContent?key=' + encodeURIComponent(key);
+  const res = UrlFetchApp.fetch(url, {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.3, maxOutputTokens: 1200 }
+    }),
+    muteHttpExceptions: true
+  });
+  const code = res.getResponseCode();
+  const text = res.getContentText();
+  if (code !== 200) throw new Error('Gemini HTTP ' + code + ' — ' + text.slice(0, 300));
+  const data = JSON.parse(text);
+  const cand = data && data.candidates && data.candidates[0];
+  const parts = cand && cand.content && cand.content.parts;
+  if (!parts || !parts.length) {
+    throw new Error('Gemini returned no text — ' + text.slice(0, 300));
+  }
+  const out = parts.map(function (p) { return p.text || ''; }).join('').trim();
+  if (!out) throw new Error('Gemini returned an empty message');
+  return out;
+}

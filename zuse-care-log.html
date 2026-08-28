@@ -61,6 +61,15 @@ header{padding:calc(14px + env(safe-area-inset-top)) 0 6px;position:sticky;top:0
 /* walk bar */
 .walkbar{display:none;align-items:center;justify-content:space-between;gap:10px;background:var(--surf2);border:1px solid var(--line);border-radius:12px;padding:9px 12px;margin-top:9px;font-size:13.5px}
 .playBtn{margin-top:6px;font-size:12.5px;padding:6px 10px;border-radius:8px;background:var(--surf2);border:1px solid var(--line);color:var(--vet)}
+.photostrip{display:grid;gap:9px}
+.photostrip:not(:empty){margin-bottom:9px}
+.photostrip figure{background:var(--surf2);border:1px solid var(--line);border-radius:11px;overflow:hidden}
+.photostrip img{width:100%;display:block;max-height:230px;object-fit:cover}
+.photostrip .cap{display:flex;gap:6px;align-items:center;padding:7px 9px}
+.photostrip .cap input{border:0;background:transparent;padding:4px 0;font-size:13px;border-radius:0}
+.ev figure{margin-top:7px;border:1px solid var(--line);border-radius:11px;overflow:hidden;background:var(--surf2);max-width:280px}
+.ev figure img{width:100%;display:block}
+.ev figcaption{font-size:12.5px;color:var(--mu);padding:6px 9px;word-wrap:break-word}
 
 /* ring */
 .hero{margin-top:14px;background:var(--surf);border:1px solid var(--line);border-radius:22px;padding:18px;position:relative;overflow:hidden}
@@ -108,7 +117,13 @@ section{margin-top:24px}
 .q:after{content:'';position:absolute;left:0;right:0;top:0;height:2px;background:var(--c,var(--line))}
 
 /* timeline */
-.tl{position:relative;padding-left:20px}
+.tl{position:relative;padding-left:20px;transition:opacity .14s ease,transform .14s ease}
+.tl.slid{opacity:0}
+.tl.slidL{transform:translateX(-14px)}
+.tl.slidR{transform:translateX(14px)}
+.daynav{display:flex;align-items:center;gap:7px}
+.daynav .hbtn{width:29px;height:29px;font-size:17px;line-height:1}
+.daynav .hbtn[disabled]{opacity:.25}
 .tl:before{content:'';position:absolute;left:5px;top:6px;bottom:6px;width:1px;background:var(--line)}
 .ev{display:flex;gap:11px;padding:9px 0;position:relative;align-items:flex-start}
 .ev:before{content:'';position:absolute;left:-18px;top:16px;width:9px;height:9px;border-radius:99px;background:var(--c,var(--dim));box-shadow:0 0 0 3px var(--bg)}
@@ -239,13 +254,22 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
     </div>
   </div>
 
+  <div id="stockWarn"></div>
+
   <section>
     <div class="shead"><h2>Quick log</h2><button onclick="openLog()">Custom entry</button></div>
     <div class="qgrid" id="quick"></div>
   </section>
 
-  <section>
-    <div class="shead"><h2>Today</h2><span class="note" id="dayCount"></span></div>
+  <section id="daySection">
+    <div class="shead">
+      <h2 id="dayTitle">Today</h2>
+      <div class="daynav">
+        <span class="note" id="dayCount"></span>
+        <button class="hbtn" id="dayPrev" aria-label="Show the day before">&lsaquo;</button>
+        <button class="hbtn" id="dayNext" aria-label="Show the day after" disabled>&rsaquo;</button>
+      </div>
+    </div>
     <div class="tl" id="todayTl"></div>
   </section>
 
@@ -325,6 +349,11 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
     <div class="card" id="editPm"></div>
   </section>
   <section>
+    <div class="shead"><h2>Medicine stock</h2></div>
+    <div class="card" id="stockBox"></div>
+    <p class="note" style="margin-top:10px">Type in what you have in hand &mdash; the app counts down everything logged from that day onwards, so edits, deletions and sheet pulls all correct themselves. Re-enter the amount whenever you restock. &ldquo;Days left&rdquo; divides by the last 14 days of use.</p>
+  </section>
+  <section>
     <div class="shead"><h2>Google Sheet sync</h2></div>
     <div class="card">
       <div class="fld"><label>Web App URL</label><input id="sSyncUrl" placeholder="https://script.google.com/macros/s/…/exec"></div>
@@ -335,19 +364,21 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
     <a class="btn sec" style="margin-top:9px;display:block;text-align:center" href="https://docs.google.com/spreadsheets/d/1e6t7GPNNgzsLaPqETFxSmcDoJ-VWs0VEwkEWOhzvF4c/edit?usp=sharing" target="_blank" rel="noopener">Open Google Sheet</a>
     <p class="note" style="margin-top:10px" id="syncStatus">Not synced yet.</p>
     <p class="note" style="margin-top:10px">Matches entries by date + time + type — anything on one side missing from the other gets copied across. See the setup guide for the Apps Script code to paste into your sheet.</p>
+    <p class="note" style="margin-top:10px">That same script can email you when a shot goes unlogged past its time. This app can't do it on its own — a phone stops a web app dead once the screen locks. Set <b>ALERT_EMAIL</b> in the script and run <b>installReminders</b> once.</p>
   </section>
   <section>
     <div class="shead"><h2>Your data</h2></div>
-    <button class="btn sec" onclick="exportCSV()">Download CSV</button>
+    <button class="btn sec" onclick="shareVetSummary()">Share 30-day vet summary</button>
+    <button class="btn sec" style="margin-top:9px" onclick="exportCSV()">Download CSV</button>
     <button class="btn sec" style="margin-top:9px" onclick="exportJSON()">Download backup (JSON)</button>
     <button class="btn sec" style="margin-top:9px" onclick="document.getElementById('imp').click()">Restore from backup</button>
     <input type="file" id="imp" accept=".json" style="display:none" onchange="importJSON(event)">
     <button class="btn dgr" style="margin-top:9px" onclick="wipe()">Delete everything</button>
-    <p class="note" style="margin-top:14px">Everything stays on this phone. Nothing is uploaded. Take a backup now and then — clearing your browser data clears the log.</p>
+    <p class="note" style="margin-top:14px">Everything stays on this phone. Nothing is uploaded. Take a backup now and then — clearing your browser data clears the log. Backups include photos, so they can get large.</p>
   </section>
   <section>
     <div class="shead"><h2>Install on your phone</h2></div>
-    <p class="note">Open this file in Chrome, then <b>⋮ → Add to Home screen</b>. It opens full screen and works offline.</p>
+    <p class="note">Open this file in Chrome, then <b>⋮ → Add to Home screen</b>. It opens full screen and works offline — the last version you loaded is cached, and an update lands the next time you open it with signal.</p>
   </section>
   <div style="height:20px"></div>
 </div>
@@ -369,6 +400,12 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
     <div class="fld"><label>Time</label><input id="fTime" type="time"></div>
   </div>
   <div class="fld"><label>Notes</label><textarea id="fNote" rows="2" placeholder="How did he take it? Poop? Mood?"></textarea></div>
+  <div class="fld">
+    <label>Photos</label>
+    <div class="photostrip" id="fPhotos"></div>
+    <input type="file" id="fPhotoIn" accept="image/*" multiple style="display:none" onchange="addPhotos(event)">
+    <button class="btn sec" style="margin-top:0;padding:11px" onclick="document.getElementById('fPhotoIn').click()">Add photo</button>
+  </div>
   <button class="btn" onclick="saveEntry()">Save entry</button>
   <button class="btn dgr" id="delBtn" style="margin-top:9px;display:none" onclick="delEntry()">Delete entry</button>
 </div>
@@ -443,8 +480,10 @@ const Store={
   }
 };
 
-/* ---------------- audio blob storage (IndexedDB) ---------------- */
-const AudioStore=(()=>{
+/* ---------------- blob storage: photos, plus legacy vet audio (IndexedDB) ----
+   The database name stays 'zuse-audio' so recordings made before the vet-visit
+   audio feature was removed are still readable. */
+const Media=(()=>{
   let dbp=null;
   function db(){
     if(dbp)return dbp;
@@ -461,7 +500,8 @@ const AudioStore=(()=>{
   return{
     async save(id,blob){const s=await store('readwrite');return new Promise((res,rej)=>{const rq=s.put(blob,id);rq.onsuccess=()=>res();rq.onerror=()=>rej(rq.error)})},
     async get(id){const s=await store('readonly');return new Promise((res,rej)=>{const rq=s.get(id);rq.onsuccess=()=>res(rq.result||null);rq.onerror=()=>rej(rq.error)})},
-    async delete(id){const s=await store('readwrite');return new Promise((res,rej)=>{const rq=s.delete(id);rq.onsuccess=()=>res();rq.onerror=()=>rej(rq.error)})}
+    async delete(id){const s=await store('readwrite');return new Promise((res,rej)=>{const rq=s.delete(id);rq.onsuccess=()=>res();rq.onerror=()=>rej(rq.error)})},
+    async keys(){const s=await store('readonly');return new Promise((res,rej)=>{const rq=s.getAllKeys();rq.onsuccess=()=>res(rq.result||[]);rq.onerror=()=>rej(rq.error)})}
   };
 })();
 
@@ -496,7 +536,7 @@ const FLAGS=['sick','diarrhea','pee','vet'];
 
 /* ---------------- defaults ---------------- */
 const DEF={
-  insulin:8, amTime:'11:30', pmTime:'23:30', gap:12, homeLat:null, homeLon:null, homeAcc:null,
+  insulin:8, amTime:'11:30', pmTime:'23:30', gap:12, homeLat:null, homeLon:null, homeAcc:null, stock:{},
   am:[['food',2],['insulin',8],['samylin',2],['synulox',1],['para',.5],['chicken',30]],
   pm:[['food',2],['insulin',8],['synulox',1],['pred',.5],['para',.5],['chicken',25]],
   syncUrl:'', syncKey:'', lastSync:'', theme:'', wakeOn:false
@@ -852,7 +892,9 @@ function renderRing(){
     st.style.color=cvar('--mu');st.style.borderColor=cvar('--line');stx.textContent='Waiting';
     return;
   }
-  const mins=(now-last)/6e4, gap=cfg.gap*60, frac=Math.min(mins/gap,1);
+  // runRoutine stamps each item a minute apart, so the shot can be seconds in
+  // the future; without the clamp the ring floors that to "-1h 00".
+  const mins=Math.max(0,(now-last)/6e4), gap=cfg.gap*60, frac=Math.min(mins/gap,1);
   arc.style.strokeDashoffset=C*(1-frac);
   const h=Math.floor(mins/60), m=Math.round(mins%60);
   document.getElementById('ringBig').textContent=`${h}h ${pad(m)}`;
@@ -890,7 +932,11 @@ function renderChecks(){
     const b=document.createElement('button');
     b.className='chk'+(done[i]?' on':'');
     b.innerHTML=`<span class="box">${done[i]?'✓':''}</span>${T[ty].i} ${T[ty].n.split(' ')[0]} <span class="mono" style="opacity:.65">${q}</span>`;
-    b.onclick=()=>{if(done[i]){toast(T[ty].n+' already logged')}else{add(ty,q,'');toast(T[ty].n+' logged')}};
+    b.onclick=()=>{
+      if(done[i]){toast(T[ty].n+' already logged');return}
+      if(ty==='insulin'&&!insulinGuardOk())return;
+      add(ty,q,'');toast(T[ty].n+' logged');
+    };
     box.appendChild(b);
   });
   const left=done.filter(x=>!x).length;
@@ -900,12 +946,17 @@ function renderChecks(){
 }
 function runRoutine(w){
   const done=routineDone(w);let n=0;
+  // Ask once, before the loop. Declining skips ONLY the insulin line — the
+  // food and meds still get logged.
+  const pendingInsulin=cfg[w].some(([ty],i)=>ty==='insulin'&&!done[i]);
+  const skipInsulin=pendingInsulin&&!insulinGuardOk();
   cfg[w].forEach(([ty,q],i)=>{if(!done[i]){
+    if(ty==='insulin'&&skipInsulin)return;
     const d=new Date();d.setMinutes(d.getMinutes()+n);
     entries.push({id:uid(),date:iso(d),time:hm(d),type:ty,qty:q,note:''});n++;
   }});
-  if(!n){toast('Nothing left in that routine');return}
-  save();renderAll();toast(`${n} entr${n>1?'ies':'y'} logged`);
+  if(!n){toast(skipInsulin?'Insulin skipped — nothing else left':'Nothing left in that routine');return}
+  save();renderAll();toast(`${n} entr${n>1?'ies':'y'} logged${skipInsulin?' · insulin skipped':''}`);
 }
 
 /* ---------------- today ---------------- */
@@ -920,7 +971,7 @@ function evNode(e,showDel){
     pb.className='playBtn';pb.textContent='▶ Play recording';
     pb.onclick=async()=>{
       pb.textContent='Loading…';pb.disabled=true;
-      let blob=null;try{blob=await AudioStore.get(e.audioId)}catch(err){}
+      let blob=null;try{blob=await Media.get(e.audioId)}catch(err){}
       if(!blob){pb.textContent='Recording unavailable';return}
       const url=URL.createObjectURL(blob);
       const wrap=document.createElement('div');wrap.style.cssText='margin-top:6px';
@@ -934,15 +985,49 @@ function evNode(e,showDel){
     };
     d.querySelector('.b').appendChild(pb);
   }
+  (e.photos||[]).forEach(ph=>{
+    const fig=document.createElement('figure');
+    const img=document.createElement('img');img.loading='lazy';img.alt=ph.cap||'Photo';
+    fig.appendChild(img);
+    if(ph.cap){const fc=document.createElement('figcaption');fc.textContent=ph.cap;fig.appendChild(fc)}
+    d.querySelector('.b').appendChild(fig);
+    photoUrl(ph.id).then(u=>{if(u)img.src=u;else fig.remove()});
+  });
   const x=document.createElement('button');x.className='x';x.textContent='⋯';x.setAttribute('aria-label','Edit entry');
   x.onclick=()=>openLog(e);d.appendChild(x);
   return d;
 }
 function esc(s){return String(s).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}
+/* 0 = today, 1 = yesterday, and so on back. Only the timeline moves — the ring,
+   the routine and "At a glance" always describe today. */
+let dayOffset=0;
+function dayIsoAt(offset){
+  // setDate, not a milliseconds subtraction: it survives DST and month ends.
+  const d=new Date();d.setDate(d.getDate()-offset);return iso(d);
+}
+function shiftDay(n){
+  const next=Math.max(0,dayOffset+n);
+  if(next===dayOffset)return;
+  const tl=document.getElementById('todayTl');
+  tl.classList.add('slid',n>0?'slidL':'slidR');   // old day leaves
+  setTimeout(()=>{
+    dayOffset=next;renderToday();
+    tl.classList.remove('slidL','slidR');
+    tl.classList.add(n>0?'slidR':'slidL');        // new day enters from the far side
+    requestAnimationFrame(()=>requestAnimationFrame(()=>
+      tl.classList.remove('slid','slidL','slidR')));
+  },140);
+}
 function renderToday(){
-  const ds=iso(new Date()), list=byDate(ds), tl=document.getElementById('todayTl');
+  const ds=dayIsoAt(dayOffset), list=byDate(ds), tl=document.getElementById('todayTl');
+  document.getElementById('dayTitle').textContent=dayLabel(ds);
+  document.getElementById('dayNext').disabled=dayOffset===0;
   tl.innerHTML='';
-  if(!list.length){tl.innerHTML='<div class="empty">Nothing logged yet today.<br>Start with the routine above.</div>';}
+  if(!list.length){
+    tl.innerHTML=dayOffset===0
+      ?'<div class="empty">Nothing logged yet today.<br>Start with the routine above.</div>'
+      :`<div class="empty">Nothing logged on ${esc(dayLabel(ds))}.</div>`;
+  }
   else list.forEach(e=>tl.appendChild(evNode(e)));
   document.getElementById('dayCount').textContent=list.length?`${list.length} entries`:'';
 }
@@ -961,6 +1046,224 @@ function renderGlance(){
   <div class="card"><div class="k">Last weigh-in</div><div class="v" style="color:var(--vet)">${lastW?lastW.qty:'—'}<small> kg</small></div><div class="d">${lastW?dayLabel(lastW.date):'not recorded'}${lastG?' · glucose '+lastG.qty:''}</div></div>`;
 }
 
+/* Two carers dosing the same dog is the failure this catches, not forgetting.
+   Interactive paths only — sync, seed and import must never prompt. The food
+   check is a nudge, not a rule: a `food` entry says food was put down, not
+   that he ate it, which is the thing that actually decides the dose. */
+function insulinGuardOk(){
+  const last=lastOf('insulin');
+  if(last){
+    const hrs=(new Date()-last)/36e5;
+    const ago=hrs<1?`${Math.round(hrs*60)} minutes`:`${hrs.toFixed(1)} hours`;
+    if(hrs<cfg.gap*0.5&&!confirm(`Last insulin was ${ago} ago — well short of the ${cfg.gap}h gap. Log another shot?`))return false;
+  }
+  const fed=lastOf('food');
+  if((fed?(new Date()-fed)/6e4:Infinity)>45&&!confirm('No food logged in the last 45 minutes. Did he actually eat? Insulin normally goes in after a meal.'))return false;
+  return true;
+}
+
+/* ---------------- medicine stock ---------------- */
+/* Stock is a restock baseline, not a running counter: remaining = what you put
+   in, minus everything logged on or after that date. Edits, deletions and sheet
+   pulls all correct themselves, and no logging path has to know stock exists. */
+const STOCKABLE=['insulin','samylin','pred','para','synulox','cerenia','food','chicken'];
+const LOW_DAYS=7;
+function usedSince(type,since){
+  return entries.filter(e=>e.type===type&&e.date>=since).reduce((a,e)=>a+(+e.qty||0),0);
+}
+function stockLeft(type){
+  const st=cfg.stock&&cfg.stock[type];
+  if(!st)return null;
+  const left=Math.round((+st.qty-usedSince(type,st.since))*100)/100;
+  // Fixed 14-day divisor. Dividing by "days that happen to have an entry" would
+  // read a twice-weekly tablet as a daily one and roughly halve the estimate.
+  // 13 days back plus today is 14 calendar days; 14 back would span 15 and
+  // overstate the burn by a day's worth.
+  const rate=usedSince(type,iso(new Date(Date.now()-13*864e5)))/14;
+  return {left, rate, days:rate>0?Math.floor(Math.max(0,left)/rate):null};
+}
+function lowStock(){
+  return Object.keys(cfg.stock||{})
+    .filter(t=>T[t])
+    .map(t=>Object.assign({t},stockLeft(t)))
+    .filter(x=>x.left!=null&&(x.left<=0||(x.days!=null&&x.days<=LOW_DAYS)));
+}
+function stockLabel(x){
+  const u=T[x.t].u?' '+T[x.t].u:'';
+  if(x.left<=0)return 'out';
+  return `${x.left}${u} left${x.days!=null?` \u00b7 ~${x.days} day${x.days===1?'':'s'}`:' \u00b7 no recent use'}`;
+}
+function renderStockWarn(){
+  const el=document.getElementById('stockWarn');
+  const low=lowStock();
+  if(!low.length){el.innerHTML='';return}
+  el.innerHTML=`<div class="card" style="margin-top:12px;border-color:rgba(255,107,107,.35)">
+    <div class="k" style="color:#FFA8A8">Running low</div>
+    <div class="d" style="margin-top:5px">${low.map(x=>`${T[x.t].i} ${esc(T[x.t].n)} \u2014 ${esc(stockLabel(x))}`).join('<br>')}</div></div>`;
+}
+function renderStock(){
+  const box=document.getElementById('stockBox');box.innerHTML='';
+  const keys=Object.keys(cfg.stock||{}).filter(t=>T[t]);
+  keys.forEach(t=>{
+    const x=Object.assign({t},stockLeft(t));
+    const row=document.createElement('div');
+    row.style.cssText='display:flex;gap:9px;align-items:center;margin-bottom:9px';
+    const lbl=document.createElement('span');lbl.style.cssText='flex:1;font-size:14px';
+    lbl.innerHTML=`${T[t].i} ${esc(T[t].n)}<br><span class="note">${esc(stockLabel(x))}</span>`;
+    const inp=document.createElement('input');
+    inp.type='number';inp.step='0.5';inp.inputMode='decimal';inp.value=cfg.stock[t].qty;
+    inp.style.width='84px';inp.title='Set to the amount you now have';
+    inp.onchange=()=>{cfg.stock[t]={qty:+inp.value,since:iso(new Date())};saveCfg();renderStock();renderStockWarn()};
+    const del=document.createElement('button');del.textContent='\u2715';del.setAttribute('aria-label','Stop tracking');
+    del.style.cssText='color:var(--dim);padding:6px 4px;flex:none';
+    del.onclick=()=>{delete cfg.stock[t];saveCfg();renderStock();renderStockWarn()};
+    row.appendChild(lbl);row.appendChild(inp);row.appendChild(del);box.appendChild(row);
+  });
+  const sel=document.createElement('select');
+  sel.innerHTML='<option value="">+ Track stock for\u2026</option>'+
+    STOCKABLE.filter(k=>!keys.includes(k)).map(k=>`<option value="${k}">${T[k].i} ${T[k].n}</option>`).join('');
+  sel.onchange=()=>{
+    if(!sel.value)return;
+    cfg.stock=cfg.stock||{};
+    cfg.stock[sel.value]={qty:0,since:iso(new Date())};
+    saveCfg();renderStock();renderStockWarn();
+  };
+  box.appendChild(sel);
+}
+
+/* ---------------- vet summary ---------------- */
+function vetSummary(days=30){
+  const today=iso(new Date());
+  const from=iso(new Date(Date.now()-days*864e5));
+  const inRange=entries.filter(e=>e.date>=from);
+  const sum=t=>inRange.filter(e=>e.type===t).reduce((a,e)=>a+(+e.qty||0),0);
+  const count=t=>inRange.filter(e=>e.type===t).length;
+  // Average over the window actually covered, not over days that have entries —
+  // a log that started a week ago must not read as a 30-day average.
+  const firstDate=inRange.length?inRange.map(e=>e.date).sort()[0]:today;
+  const span=Math.round((new Date(today)-new Date(firstDate))/864e5)+1;
+  const n=Math.max(1,Math.min(days,span));
+  const L=[`Zuse \u2014 last ${days} days (${from} to ${today})`,''];
+  if(!inRange.length){
+    L.push('Nothing logged in this period.');
+    const ever=entries.length?[...entries].sort((a,b)=>a.date<b.date?1:-1)[0]:null;
+    if(ever)L.push(`Last entry of any kind: ${T[ever.type]?T[ever.type].n:ever.type} on ${ever.date}.`);
+    return L.join('\n');
+  }
+  // Only weigh-ins inside the window. Reporting the latest one ever under a
+  // "last 30 days" heading reads as a recent weight when it is nothing of the sort.
+  const w=series('weight'), wIn=w.filter(pt=>pt.d>=from);
+  if(wIn.length){
+    const last=wIn[wIn.length-1], base=wIn[0];
+    const dw=+(last.v-base.v).toFixed(1);
+    L.push(`Weight: ${last.v} kg on ${last.d}${base!==last?` (${dw>0?'+':''}${dw} kg since ${base.d})`:''}`);
+  }else if(w.length){
+    const prev=w[w.length-1];
+    L.push(`Weight: not weighed in this period (last was ${prev.v} kg on ${prev.d})`);
+  }else{
+    L.push('Weight: never recorded');
+  }
+  const gr=series('glucose').filter(pt=>pt.d>=from);
+  if(gr.length)L.push(`Glucose: ${gr.map(pt=>`${pt.v} on ${pt.d}`).join(', ')}`);
+  L.push(`Insulin: ${(sum('insulin')/n).toFixed(1)} units/day avg over ${n} days, ${count('insulin')} shots total`);
+  L.push(`Food: ${(sum('food')/n).toFixed(1)} cans/day avg`);
+  L.push(`Walks: ${count('walk')} walks, ${Math.round(sum('walk')/n)} min/day avg`);
+  const meds=['pred','para','synulox','samylin','cerenia'].filter(t=>sum(t)>0);
+  if(meds.length)L.push(`Meds: ${meds.map(t=>`${T[t].n} ${sum(t)} ${T[t].u}`).join(', ')}`);
+  const inc=inRange.filter(e=>['sick','diarrhea','pee'].includes(e.type))
+    .sort((a,b)=>(a.date+a.time)<(b.date+b.time)?-1:1);
+  L.push('', inc.length?`Incidents (${inc.length}):`:'Incidents: none');
+  inc.forEach(e=>L.push(`  ${e.date} ${e.time} \u2014 ${T[e.type].n}${e.note?': '+e.note:''}`));
+  const ur=inRange.filter(e=>e.type==='urine').sort((a,b)=>a.date<b.date?-1:1);
+  if(ur.length){
+    L.push('',`Urine tests (${ur.length}):`);
+    ur.forEach(e=>L.push(`  ${e.date} \u2014 ${e.note||'no values recorded'}`));
+  }
+  return L.join('\n');
+}
+async function shareVetSummary(){
+  const text=vetSummary();
+  if(navigator.share){
+    try{await navigator.share({title:'Zuse \u2014 30 day summary',text});return}
+    catch(e){if(e&&e.name==='AbortError')return}
+  }
+  try{await navigator.clipboard.writeText(text);toast('Summary copied to clipboard')}
+  catch(e){dl(`zuse-summary-${iso(new Date())}.txt`,text,'text/plain');toast('Summary downloaded')}
+}
+
+/* ---------------- photos ---------------- */
+/* A phone photo is 3-5MB straight off the camera. Downscale before anything
+   reaches IndexedDB, or a year of entries fills the device. createImageBitmap
+   applies the EXIF rotation that a raw canvas draw would ignore. */
+const PHOTO_MAX=1280, PHOTO_Q=.72;
+async function shrinkPhoto(file){
+  const bmp=await createImageBitmap(file,{imageOrientation:'from-image'});
+  const sc=Math.min(1,PHOTO_MAX/Math.max(bmp.width,bmp.height));
+  const c=document.createElement('canvas');
+  c.width=Math.round(bmp.width*sc);c.height=Math.round(bmp.height*sc);
+  c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
+  bmp.close();
+  return new Promise((res,rej)=>c.toBlob(b=>b?res(b):rej(new Error('encode failed')),'image/jpeg',PHOTO_Q));
+}
+/* One object URL per photo for the life of the session — renderToday runs
+   often and minting a fresh URL each pass would leak them. */
+const photoUrls=new Map();
+async function photoUrl(id){
+  if(photoUrls.has(id))return photoUrls.get(id);
+  let b=null;try{b=await Media.get(id)}catch(e){}
+  if(!b)return null;
+  const u=URL.createObjectURL(b);photoUrls.set(id,u);return u;
+}
+/* Blobs go unreferenced through several paths — cancelling the sheet after
+   adding one, deleting an entry, restoring a backup. Rather than track each,
+   sweep anything no entry points at. Self-healing, and it covers paths that
+   don't exist yet. */
+async function sweepMedia(){
+  if(!entries.length)return; // an empty log means load() failed; don't wipe
+  try{
+    const keep=new Set(sheetPhotos.map(ph=>ph.id)); // an open sheet counts as a reference
+    entries.forEach(e=>{if(e.audioId)keep.add(e.audioId);(e.photos||[]).forEach(p=>keep.add(p.id))});
+    for(const k of await Media.keys())if(!keep.has(k)){await Media.delete(k);dropPhotoUrl(k)}
+  }catch(e){}
+}
+function dropPhotoUrl(id){
+  const u=photoUrls.get(id);
+  if(u){URL.revokeObjectURL(u);photoUrls.delete(id)}
+}
+let sheetPhotos=[];
+async function addPhotos(ev){
+  const files=[...ev.target.files];ev.target.value='';
+  if(!files.length)return;
+  toast(files.length>1?`Adding ${files.length} photos…`:'Adding photo…');
+  let bad=0;
+  for(const f of files){
+    try{
+      const id=uid();
+      await Media.save(id,await shrinkPhoto(f));
+      sheetPhotos.push({id,cap:''});
+    }catch(e){bad++}
+  }
+  await renderSheetPhotos();
+  if(bad)toast(`${bad} image${bad>1?'s':''} could not be read`);
+}
+async function renderSheetPhotos(){
+  const box=document.getElementById('fPhotos');box.innerHTML='';
+  for(const ph of sheetPhotos){
+    const url=await photoUrl(ph.id);
+    const fig=document.createElement('figure');
+    if(url){const img=document.createElement('img');img.src=url;img.alt=ph.cap||'Photo';fig.appendChild(img)}
+    else{const m=document.createElement('div');m.className='note';m.style.padding='10px';m.textContent='Photo missing';fig.appendChild(m)}
+    const cap=document.createElement('div');cap.className='cap';
+    const inp=document.createElement('input');inp.placeholder='Caption…';inp.value=ph.cap||'';
+    inp.oninput=()=>{ph.cap=inp.value};
+    const del=document.createElement('button');del.textContent='✕';del.setAttribute('aria-label','Remove photo');
+    del.style.cssText='color:var(--dim);padding:4px 6px;flex:none;font-size:15px';
+    del.onclick=()=>{sheetPhotos=sheetPhotos.filter(x=>x!==ph);renderSheetPhotos()};
+    cap.appendChild(inp);cap.appendChild(del);fig.appendChild(cap);
+    box.appendChild(fig);
+  }
+}
+
 /* ---------------- quick grid ---------------- */
 function tileGrid(el,keys){
   el.innerHTML='';
@@ -972,6 +1275,7 @@ function tileGrid(el,keys){
       if(k==='walk'){startWalk();return}
       if(k==='vet'){if(vetState){toast('Vet visit already in progress')}else{startVet()}return}
       if(k==='urine'){openUrineSheet();return}
+      if(k==='insulin'&&!insulinGuardOk())return;
       if(t.d===''||['note','weight','glucose','chicken'].includes(k)){openLog(null,k)}
       else{add(k,k==='insulin'?cfg.insulin:t.d,'');toast(`${t.n} logged`)}
     };
@@ -1096,6 +1400,7 @@ function renderSettings(){
   document.getElementById('sSyncUrl').value=cfg.syncUrl||'';
   document.getElementById('sSyncKey').value=cfg.syncKey||'';
   document.getElementById('syncStatus').textContent=cfg.lastSync?`Last synced ${new Date(cfg.lastSync).toLocaleString()}`:'Not synced yet.';
+  renderStock();
   ['am','pm'].forEach(w=>{
     const box=document.getElementById(w==='am'?'editAm':'editPm');box.innerHTML='';
     cfg[w].forEach(([ty,q],i)=>{
@@ -1267,6 +1572,8 @@ function openLog(entry,preset){
   document.getElementById('fTime').value=entry?entry.time:hm(now);
   document.getElementById('fNote').value=entry?entry.note:'';
   document.getElementById('delBtn').style.display=entry?'block':'none';
+  sheetPhotos=entry&&entry.photos?entry.photos.map(ph=>({id:ph.id,cap:ph.cap||''})):[];
+  renderSheetPhotos();
   sel.onchange=()=>{const t=T[sel.value];document.getElementById('fUnit').value=t.u;document.getElementById('fQty').value=sel.value==='insulin'?cfg.insulin:t.d};
   document.getElementById('scrim').classList.add('on');
   document.getElementById('sheet').classList.add('on');
@@ -1285,12 +1592,15 @@ function saveEntry(){
     date:document.getElementById('fDate').value,time:document.getElementById('fTime').value,
     note:document.getElementById('fNote').value.trim()};
   if(!o.date||!o.time){toast('Add a date and time');return}
-  if(editId){const e=entries.find(x=>x.id===editId);Object.assign(e,o)}
+  if(o.type==='insulin'&&!editId&&!insulinGuardOk())return;
+  if(sheetPhotos.length)o.photos=sheetPhotos.map(ph=>({id:ph.id,cap:(ph.cap||'').trim()}));
+  if(editId){const e=entries.find(x=>x.id===editId);Object.assign(e,o);if(!o.photos)delete e.photos}
   else entries.push(Object.assign({id:uid()},o));
-  save();renderAll();closeSheet();toast(editId?'Entry updated':`${T[o.type].n} logged`);
+  save();renderAll();closeSheet();sweepMedia();
+  toast(editId?'Entry updated':`${T[o.type].n} logged`);
 }
 function delEntry(){
-  entries=entries.filter(e=>e.id!==editId);save();renderAll();closeSheet();toast('Entry deleted');
+  entries=entries.filter(e=>e.id!==editId);save();renderAll();closeSheet();sweepMedia();toast('Entry deleted');
 }
 
 /* ---------------- data ---------------- */
@@ -1305,18 +1615,45 @@ function exportCSV(){
   dl(`zuse-log-${iso(new Date())}.csv`,rows.map(r=>r.map(c=>`"${String(c??'').replace(/"/g,'""')}"`).join(',')).join('\n'),'text/csv');
   toast('CSV downloaded');
 }
-function exportJSON(){dl(`zuse-backup-${iso(new Date())}.json`,JSON.stringify({cfg,entries},null,1),'application/json');toast('Backup downloaded')}
+const blobToDataUrl=b=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(r.error);r.readAsDataURL(b)});
+const dataUrlToBlob=async u=>(await fetch(u)).blob();
+async function exportJSON(){
+  const ids=[];
+  entries.forEach(e=>{if(e.audioId)ids.push(e.audioId);(e.photos||[]).forEach(ph=>ids.push(ph.id))});
+  if(ids.length)toast(`Packing ${ids.length} photo${ids.length>1?'s':''}…`);
+  const photos={};
+  for(const id of ids){try{const b=await Media.get(id);if(b)photos[id]=await blobToDataUrl(b)}catch(e){}}
+  dl(`zuse-backup-${iso(new Date())}.json`,JSON.stringify({cfg,entries,photos},null,1),'application/json');
+  toast('Backup downloaded');
+}
 function importJSON(ev){
   const f=ev.target.files[0];if(!f)return;const r=new FileReader();
-  r.onload=()=>{try{const d=JSON.parse(r.result);
-    if(d.entries){entries=d.entries;if(d.cfg)cfg=Object.assign(cfg,d.cfg);save();saveCfg();renderAll();toast('Backup restored')}
-    else toast("That file doesn't look like a Zuse backup");
-  }catch(e){toast('Could not read that file')}};
+  r.onload=async()=>{
+    let d;
+    try{d=JSON.parse(r.result)}catch(e){toast('Could not read that file');return}
+    if(!Array.isArray(d.entries)){toast("That file doesn't look like a Zuse backup");return}
+    // Entries land first: one undecodable photo must not cost the whole log.
+    entries=d.entries;if(d.cfg)cfg=Object.assign(cfg,d.cfg);
+    await save();await saveCfg();
+    photoUrls.forEach(u=>URL.revokeObjectURL(u));photoUrls.clear();
+    renderAll();
+    let n=0,bad=0;
+    for(const id of Object.keys(d.photos||{})){
+      try{await Media.save(id,await dataUrlToBlob(d.photos[id]));n++}catch(e){bad++}
+    }
+    renderAll();
+    toast(`Backup restored${n?` · ${n} photo${n>1?'s':''}`:''}${bad?` · ${bad} failed`:''}`);
+  };
   r.readAsText(f);ev.target.value='';
 }
-function wipe(){
+async function wipe(){
   if(!confirm('Delete every entry, including the imported diary? This cannot be undone.'))return;
-  entries=[];save();renderAll();toast('Log cleared');
+  entries=[];save();
+  // sweepMedia refuses to run on an empty log (it can't tell a wipe from a
+  // failed load), so the photos have to go explicitly.
+  try{for(const k of await Media.keys())await Media.delete(k)}catch(e){}
+  photoUrls.forEach(u=>URL.revokeObjectURL(u));photoUrls.clear();
+  renderAll();toast('Log and photos cleared');
 }
 
 /* ---------------- nav ---------------- */
@@ -1330,13 +1667,34 @@ function nav(v){
   if(v==='hist'){renderFilters();renderHist()}
   if(v==='trend')renderCharts();
   if(v==='set')renderSettings();
+  if(v==='today'&&dayOffset!==0){dayOffset=0;renderToday()}
 }
+/* Swipe the day timeline: left for the day before, right for the day after.
+   The gesture is only claimed when it is clearly horizontal, so a normal
+   vertical scroll through the day still works. */
+(function(){
+  const el=document.getElementById('daySection');
+  let x0=0,y0=0,live=false;
+  el.addEventListener('touchstart',ev=>{
+    live=ev.touches.length===1;
+    if(live){x0=ev.touches[0].clientX;y0=ev.touches[0].clientY}
+  },{passive:true});
+  el.addEventListener('touchend',ev=>{
+    if(!live)return; live=false;
+    const t=ev.changedTouches[0], dx=t.clientX-x0, dy=t.clientY-y0;
+    if(Math.abs(dx)<50||Math.abs(dx)<Math.abs(dy)*1.5)return;
+    shiftDay(dx<0?1:-1);
+  },{passive:true});
+  document.getElementById('dayPrev').onclick=()=>shiftDay(1);
+  document.getElementById('dayNext').onclick=()=>shiftDay(-1);
+})();
 document.getElementById('nav').innerHTML=VIEWS.map(([k,n,i])=>
   `<button class="nb${k==='today'?' on':''}" id="nb-${k}" onclick="nav('${k}')"><span class="ni">${i}</span>${n}</button>`).join('');
 
 /* ---------------- boot ---------------- */
 function renderAll(){
-  sortEntries();renderRing();renderChecks();renderToday();renderGlance();renderRoutineCards();
+  dayOffset=0;
+  sortEntries();renderRing();renderChecks();renderToday();renderGlance();renderRoutineCards();renderStockWarn();
   if(document.getElementById('v-hist').classList.contains('on')){renderFilters();renderHist()}
   if(document.getElementById('v-trend').classList.contains('on'))renderCharts();
 }
@@ -1356,6 +1714,8 @@ function tick(){
   if(vetState){openVetSheet();toast('Vet visit resumed');}
   tick();setInterval(tick,20000);
   document.getElementById('hsub').textContent=`${entries.length} entries logged`;
+  if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+  sweepMedia();
 })();
 </script>
 </body>
