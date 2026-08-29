@@ -647,9 +647,16 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   eq(f.rate, 2, 'two a day');
   eq(f.left, 12, '40 in, 28 used');
   eq(f.days, 6, 'six days left');
-  eq(api.checkStock(), 1, 'and six days is inside the ordinary week-of-supply rule');
-  ok(/running low on Syringes/.test(mail[0].subject), 'the email names them');
-  eq(events.length, 1, 'with a calendar reminder like anything else');
+  // Six days trips both the ordinary week-of-supply self-email and, since
+  // Syringes is in VET_REORDER and 6 <= VET_REORDER_DAYS (10), the vet email.
+  eq(api.checkStock(), 2, 'the self-reminder and the vet reorder both fire');
+  eq(mail.length, 2, 'two separate emails');
+  ok(/running low on Syringes/.test(mail[0].subject), 'the self-reminder names them, and goes out first');
+  eq(mail[1].to, 'hellopoole@natterjacksvet.com', 'the vet email goes to the vet, not the owner');
+  ok(/Reorder request: Syringes/.test(mail[1].subject), 'and says what it is');
+  ok(/60 syringes/.test(mail[1].body), 'asking for the fixed reorder amount');
+  ok(/07496 751 666/.test(mail[1].body), 'and to call this number when ready');
+  eq(events.length, 1, 'only the self-reminder gets a calendar event');
 }
 {
   // Insulin is bought by the bottle, so days of supply is the wrong alarm: at
@@ -726,6 +733,90 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
      1, 'pushing stock works with no calendar access');
   eq(post({ action: 'append', rows: [] }).added, 0, 'so does appending');
   eq(stock().getDataRange().getValues().length, 2, 'and the tab was really written');
+}
+
+/* ============ vet reorder email: Prednisolone and Syringes, day 10 ======== */
+{
+  // 0.5 a day, restocked at 12: 7 used over the 14-day window leaves 5, which
+  // at 0.5 a day is exactly 10 days - the vet threshold. 10 is well outside
+  // the ordinary 7-day self-reminder rule, so only the vet email should go.
+  const rows = [];
+  for (let d = 15; d <= 28; d++) rows.push([cell(2026, 8, d), cell(2026, 8, d, 9, 0), 'Prednisolone', '0.5', '']);
+  const { api, mail, events, props } = load(at(2026, 8, 28, 12, 0), rows, {
+    stockRows: [['Prednisolone', 12, 'tablets', '15/08/2026']],
+  });
+  eq(api.checkStock(), 1, 'the vet reorder fires even though the self-reminder rule would not');
+  eq(mail.length, 1, 'one email');
+  eq(mail[0].to, 'hellopoole@natterjacksvet.com', 'to the vet');
+  ok(/Reorder request: Prednisolone/.test(mail[0].subject), 'naming the item');
+  ok(/order 30 tablets of Prednisolone/.test(mail[0].body), 'asking for the fixed reorder amount');
+  ok(/07496 751 666/.test(mail[0].body), 'and to call this number when ready');
+  eq(events.length, 0, 'the vet email gets no calendar reminder, that is the self-reminder\'s job');
+
+  eq(api.checkStock(), 0, 'a second run the same day sends nothing more');
+  eq(mail.length, 1, 'no second vet email');
+  ok(Object.keys(props).some(k => k.indexOf('vetorder:Prednisolone|') === 0), 'the cycle is remembered');
+}
+{
+  // Restocking moves "counting from", which must let the vet email fire again,
+  // exactly like the existing stock: key does for the self-reminder.
+  const rows = [];
+  for (let d = 15; d <= 28; d++) rows.push([cell(2026, 8, d), cell(2026, 8, d, 9, 0), 'Prednisolone', '0.5', '']);
+  const { api, mail, props } = load(at(2026, 8, 28, 12, 0), rows, {
+    stockRows: [['Prednisolone', 12, 'tablets', '15/08/2026']],
+    props: { 'vetorder:Prednisolone|20/08/2026': '1' },
+  });
+  api.checkStock();
+  eq(mail.length, 1, 'the key from a previous restock does not silence the vet email');
+  ok(!('vetorder:Prednisolone|20/08/2026' in props), 'and that stale key is cleared out');
+}
+{
+  // One tablet more in hand pushes it to 12 days: past the vet threshold, and
+  // still well past the ordinary 7-day self-reminder rule too.
+  const rows = [];
+  for (let d = 15; d <= 28; d++) rows.push([cell(2026, 8, d), cell(2026, 8, d, 9, 0), 'Prednisolone', '0.5', '']);
+  const { api, mail } = load(at(2026, 8, 28, 12, 0), rows, {
+    stockRows: [['Prednisolone', 13, 'tablets', '15/08/2026']],
+  });
+  eq(api.checkStock(), 0, '12 days of supply is outside the 10-day vet rule');
+  eq(mail.length, 0, 'no email at all');
+}
+
+/* ============ cancelling one cycle's vet email ============================ */
+{
+  // The cancel button sets the same dedupe key checkStock checks, so it works
+  // whether clicked before or after the threshold is actually reached.
+  const rows = [];
+  for (let d = 15; d <= 28; d++) rows.push([cell(2026, 8, d), cell(2026, 8, d, 9, 0), 'Prednisolone', '0.5', '']);
+  const { api, mail, post } = load(at(2026, 8, 28, 12, 0), rows, {
+    stockRows: [['Prednisolone', 12, 'tablets', '15/08/2026']],
+  });
+  eq(post({ action: 'skipVetOrder', name: 'Prednisolone', since: '15/08/2026' }).ok, true,
+     'cancelling is acknowledged');
+  eq(api.checkStock(), 0, 'the vet email this cycle is suppressed');
+  eq(mail.length, 0, 'nothing is sent');
+}
+{
+  // Cancelling the vet email must not touch the separate self-reminder path.
+  const rows = [];
+  for (let d = 15; d <= 28; d++) {
+    rows.push([cell(2026, 8, d), cell(2026, 8, d, 9, 0), 'Prednisolone', '0.5', '']);
+    rows.push([cell(2026, 8, d), cell(2026, 8, d, 11, 30), 'Insulin', '16', '']);
+  }
+  const { api, mail, post } = load(at(2026, 8, 28, 12, 0), rows, {
+    stockRows: [['Prednisolone', 12, 'tablets', '15/08/2026'], ['Insulin', 300, 'units', '15/08/2026']],
+  });
+  post({ action: 'skipVetOrder', name: 'Prednisolone', since: '15/08/2026' });
+  eq(api.checkStock(), 1, 'the unrelated low-insulin self-reminder still fires');
+  eq(mail.length, 1, 'only the self-reminder email, the vet email stayed cancelled');
+  ok(/running low on Insulin/.test(mail[0].subject), 'and it is the right one');
+}
+{
+  const { post } = load(at(2026, 8, 28, 12, 0), []);
+  eq(post({ action: 'skipVetOrder', name: 'Prednisolone' }).error, 'missing name/since',
+     'since is required');
+  eq(post({ action: 'skipVetOrder', since: '15/08/2026' }).error, 'missing name/since',
+     'name is required');
 }
 
 {

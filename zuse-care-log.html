@@ -1118,6 +1118,13 @@ function insulinGuardOk(){
    pulls all correct themselves, and no logging path has to know stock exists. */
 const STOCKABLE=['insulin','syringe','samylin','pred','para','synulox','cerenia','food','chicken'];
 const LOW_DAYS=7;
+/* Prednisolone and syringes get a longer runway than the rest: they trigger a
+   vet reorder email at 10 days (see the sync script), so the "running out"
+   card has to speak up before that, not after. */
+const LOW_DAYS_OVERRIDE={pred:15,syringe:15};
+/* Items whose low-stock crossing also emails the vet to reorder; the fixed
+   qty/phone live server-side, this just gates the cancel button. */
+const VET_REORDER=['pred','syringe'];
 /* Insulin comes by the bottle, and a week's notice is no use for something that
    has to be ordered: warn once there is a single bottle in hand instead. */
 const BOTTLE=400;
@@ -1167,7 +1174,7 @@ function trackedStock(){
 }
 /* Two rules, one predicate, so the warning card, the countdown card and the
    list all agree: a fixed amount left where one is set, days of supply otherwise. */
-const isLowStock=x=>x.left<=0||(LOW_LEFT[x.t]!=null?x.left<=LOW_LEFT[x.t]:(x.days!=null&&x.days<=LOW_DAYS));
+const isLowStock=x=>x.left<=0||(LOW_LEFT[x.t]!=null?x.left<=LOW_LEFT[x.t]:(x.days!=null&&x.days<=(LOW_DAYS_OVERRIDE[x.t]||LOW_DAYS)));
 function lowStock(){
   return Object.keys(cfg.stock||{})
     .filter(t=>T[t])
@@ -1266,6 +1273,29 @@ function renderStock(){
     };
     side.appendChild(numBox(cfg.stock[t].qty,'0.5',T[t].u||'in hand',v=>v));
     if(t==='insulin')side.appendChild(numBox(Math.round(cfg.stock[t].qty/BOTTLE*100)/100,'0.25','bottles',v=>v*BOTTLE));
+    if(VET_REORDER.includes(t)){
+      const skipped=cfg.stock[t].vetSkip===cfg.stock[t].since;
+      const vb=document.createElement('button');
+      vb.textContent=skipped?'Vet email cancelled \u2713':'Cancel vet email';
+      vb.style.cssText='font-size:10.5px;color:var(--dim);padding:2px 6px';
+      vb.disabled=skipped;
+      vb.onclick=async()=>{
+        const url=cfg.syncUrl,key=cfg.syncKey;
+        if(!url||!key){toast('Set the sync URL and secret in Setup first');return}
+        vb.disabled=true;vb.textContent='Cancelling\u2026';
+        try{
+          const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+            body:JSON.stringify({secret:key,action:'skipVetOrder',name:T[t].n,since:dmyFromIso(cfg.stock[t].since)})});
+          const d=await res.json();
+          if(d.error){toast('Cancel failed: '+syncErr(d.error));vb.disabled=false;vb.textContent='Cancel vet email';return}
+          cfg.stock[t].vetSkip=cfg.stock[t].since;saveCfg();renderStockAll();
+        }catch(err){
+          toast('Cancel failed: '+(err&&err.message?err.message:err));
+          vb.disabled=false;vb.textContent='Cancel vet email';
+        }
+      };
+      side.appendChild(vb);
+    }
     const del=document.createElement('button');del.textContent='\u2715';del.setAttribute('aria-label','Stop tracking');
     del.style.cssText='color:var(--dim);padding:2px 4px';
     del.onclick=()=>{delete cfg.stock[t];saveCfg();renderStockAll()};

@@ -45,7 +45,7 @@ const T = { insulin: { n: 'Insulin', i: '💉', u: 'units' }, food: { n: 'Canned
 const esc = s => String(s);
 
 const code = [
-  grabConst('HOME_RADIUS'), grabConst('LOW_DAYS'),
+  grabConst('HOME_RADIUS'), grabConst('LOW_DAYS'), grabConst('LOW_DAYS_OVERRIDE'),
   'const pad=n=>String(n).padStart(2,"0");',
   'const iso=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;',
   grab('shouldAutoEnd'), grab('haversine'),
@@ -169,6 +169,25 @@ ok(Math.abs(api.haversine(51.5, -0.12, 51.5, -0.12)) < 1e-6, 'zero distance to s
   eq(api.lowStock().length, 1, '12 left at 2 a day is 6 days, inside the 7-day warning');
   api.setState(e, { gap: 12, stock: { syringe: { qty: 60, since: dayAgo(13) } } });
   eq(api.lowStock().length, 0, '32 left is 16 days, so nothing to say');
+  // Syringes get a longer runway (15 days, not 7) so the vet-reorder email at
+  // day 10 has a "running out" warning ahead of it, not after it.
+  api.setState(e, { gap: 12, stock: { syringe: { qty: 52, since: dayAgo(13) } } });
+  eq(api.lowStock().length, 1, '24 left at 2 a day is 12 days: past the ordinary 7-day rule, inside the 15-day override');
+}
+
+/* ---- LOW_DAYS_OVERRIDE is per-type, not global ---- */
+{
+  // Same 1-a-day, 12-days-left shape for two different types: pred is
+  // overridden to 15 days and should warn; an unrelated type stays on the
+  // ordinary 7-day rule and should not.
+  const e = [];
+  for (let i = 0; i < 14; i++) e.push({ type: 'pred', date: dayAgo(i), time: '09:00', qty: 1 });
+  api.setState(e, { gap: 12, stock: { pred: { qty: 26, since: dayAgo(13) } } });
+  eq(api.lowStock().length, 1, 'prednisolone: 12 left is inside its 15-day override');
+
+  const e2 = e.map(x => Object.assign({}, x, { type: 'para' }));
+  api.setState(e2, { gap: 12, stock: { para: { qty: 26, since: dayAgo(13) } } });
+  eq(api.lowStock().length, 0, 'paracetamol has no override: 12 days is outside the ordinary 7-day rule');
 }
 
 /* ---- insulin warns on a bottle in hand, not on a week of supply ---- */

@@ -60,6 +60,14 @@ function doPost(e) {
     const n = writeStockTab_(body.items || []);
     return jsonOut({ ok: true, saved: n });
   }
+  // The "cancel vet email" button: preemptively sets the exact dedupe key
+  // checkStock() checks, so it works whether clicked before or after the
+  // threshold is actually reached. No CalendarApp call, so it's fine here.
+  if (body.action === 'skipVetOrder') {
+    if (!body.name || !body.since) return jsonOut({ error: 'missing name/since' });
+    PropertiesService.getScriptProperties().setProperty('vetorder:' + body.name + '|' + body.since, '1');
+    return jsonOut({ ok: true });
+  }
   return jsonOut({ error: 'unknown action' });
 }
 
@@ -631,6 +639,15 @@ const STOCK_LOW_LEFT = { 'Insulin': 400 };
  * number of Insulin rows and not the sum of their units. Matches PER_SHOT. */
 const STOCK_PER_ROW = { 'Syringes': 'Insulin' };
 
+/* A second, separate alert: Prednisolone and Syringes also go straight to the
+ * vet asking them to reorder, once per restock cycle, independent of the
+ * email above. Keyed by the ITEM name on the Stock tab; keep VET_REORDER in
+ * step with the app's own VET_REORDER list. */
+const VET_EMAIL = 'hellopoole@natterjacksvet.com';
+const VET_PHONE = '07496 751 666';
+const VET_REORDER_DAYS = 10;
+const VET_REORDER = { 'Prednisolone': { qty: 30, unit: 'tablets' }, 'Syringes': { qty: 60, unit: 'syringes' } };
+
 /** The two rules in one place, so the email and the app agree on "low". */
 function stockIsLow_(it, f) {
   const cap = STOCK_LOW_LEFT[it.name];
@@ -663,24 +680,41 @@ function checkStock() {
   const now = new Date();
   const props = PropertiesService.getScriptProperties();
   const low = [];
+  const reorders = [];
 
   items.forEach(function (it) {
     const f = stockForecast_(it, rows, now);
-    if (!stockIsLow_(it, f)) return;
-    // One alert per restock cycle: entering a new amount moves `since`, which
-    // makes a new key, which lets it speak up again.
-    const key = 'stock:' + it.name + '|' + it.since;
-    if (props.getProperty(key)) return;
-    props.setProperty(key, '1');
-    low.push(Object.assign({}, it, f));
+    if (stockIsLow_(it, f)) {
+      // One alert per restock cycle: entering a new amount moves `since`, which
+      // makes a new key, which lets it speak up again.
+      const key = 'stock:' + it.name + '|' + it.since;
+      if (!props.getProperty(key)) {
+        props.setProperty(key, '1');
+        low.push(Object.assign({}, it, f));
+      }
+    }
+    // The vet-reorder email is separate from the one above: its own item
+    // list, its own day threshold, its own dedupe key, so cancelling or
+    // suppressing one never touches the other. Sent after emailLowStock_
+    // below, not here, so the order of outgoing mail stays predictable.
+    const reorder = VET_REORDER[it.name];
+    if (reorder && f.days !== null && f.days <= VET_REORDER_DAYS) {
+      const vkey = 'vetorder:' + it.name + '|' + it.since;
+      if (!props.getProperty(vkey)) {
+        props.setProperty(vkey, '1');
+        reorders.push({ name: it.name, reorder: reorder });
+      }
+    }
   });
 
   cleanupStockKeys_(props, items);
-  if (!low.length) return 0;
 
-  emailLowStock_(low);
-  low.forEach(function (x) { addReorderReminder_(x); });
-  return low.length;
+  if (low.length) {
+    emailLowStock_(low);
+    low.forEach(function (x) { addReorderReminder_(x); });
+  }
+  reorders.forEach(function (x) { emailVetReorder_(x.name, x.reorder); });
+  return low.length + reorders.length;
 }
 
 /** The Stock tab, or [] when it does not exist yet. Never throws: a missing
@@ -759,6 +793,15 @@ function emailLowStock_(low) {
     'A calendar reminder has been added for each one with a predicted day.\n');
 }
 
+/** Short, polite ask to the vet to reorder and call when it's ready. Separate
+ *  from emailLowStock_ above: different recipient, different day threshold,
+ *  different wording. */
+function emailVetReorder_(name, reorder) {
+  MailApp.sendEmail(VET_EMAIL, 'Reorder request: ' + name,
+    'Hi,\n\nCould you please order ' + reorder.qty + ' ' + reorder.unit + ' of ' + name + ' for Zuse?\n\n' +
+    'Please call me on ' + VET_PHONE + ' when it is ready to collect.\n\nThanks!\n');
+}
+
 /** A calendar event on your own Google account, so the reminder reaches the
  *  phone signed into it. Only ever called from the daily trigger - see the
  *  note in doPost about why calendar access must stay off the sync path. */
@@ -790,9 +833,12 @@ function addReorderReminder_(x) {
  *  so entering a new amount lets the alert fire again. */
 function cleanupStockKeys_(props, items) {
   const live = {};
-  items.forEach(function (it) { live['stock:' + it.name + '|' + it.since] = 1; });
+  items.forEach(function (it) {
+    live['stock:' + it.name + '|' + it.since] = 1;
+    live['vetorder:' + it.name + '|' + it.since] = 1;
+  });
   Object.keys(props.getProperties()).forEach(function (k) {
-    if (k.indexOf('stock:') === 0 && !live[k]) props.deleteProperty(k);
+    if ((k.indexOf('stock:') === 0 || k.indexOf('vetorder:') === 0) && !live[k]) props.deleteProperty(k);
   });
 }
 
