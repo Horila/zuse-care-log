@@ -357,6 +357,10 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
 <!-- ============ SETTINGS ============ -->
 <div class="view" id="v-set">
   <section>
+    <div class="shead"><h2>About this app</h2></div>
+    <button class="btn sec" onclick="openFeatures()">App features &amp; setup</button>
+  </section>
+  <section>
     <div class="shead"><h2>Doses</h2></div>
     <div class="card">
       <div class="fld"><label>Insulin dose (units)</label><input id="sInsulin" type="number" step="0.5" inputmode="decimal"></div>
@@ -505,6 +509,42 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
     <button class="btn sec" style="width:auto;margin:0;padding:11px 16px" onclick="closeSheet()">Close</button>
     <button class="btn" style="width:auto;margin:0;padding:11px 20px" onclick="shareVetSummary()">Share</button>
   </div>
+</div>
+
+<div class="sheet" id="featuresSheet">
+  <div class="grab"></div>
+  <h2>App features &amp; setup</h2>
+
+  <h3 style="margin-top:14px">Logging</h3>
+  <p class="note">Insulin, food, medication (Samylin, Prednisolone, Paracetamol, Synulox, Cerenia and more), walks, treats, bathroom and tummy-trouble notes, weight, glucose and urine test readings, vet visits, and free-text notes for anything else. The Today screen has one-tap quick-log buttons for the routine ones; <b>Custom entry</b> opens a full form with amount, date/time, notes and photos for everything else.</p>
+
+  <h3>Routines</h3>
+  <p class="note">Morning and night routines (Setup → Morning/Night routine) group the things due at each shot into one checklist on the Today screen, so nothing gets missed in the moment.</p>
+
+  <h3>Walks &amp; home location</h3>
+  <p class="note">Set your home location once (Setup → Home location) and a walk auto-ends when you're back within 2m of it, after the first 5 minutes.</p>
+
+  <h3>History &amp; Trends</h3>
+  <p class="note">History lists every entry, searchable and editable. Trends charts weight, glucose, insulin, walking and tummy trouble over time, since the log started.</p>
+
+  <h3>Stock</h3>
+  <p class="note">Track how much of an item you have in hand and since when; the app works out the daily-use rate from your own logged entries and predicts a run-out date. Insulin and Syringes are linked — a syringe is counted automatically for every insulin shot, never logged by hand.</p>
+
+  <h3 style="margin-top:18px;color:var(--alert)">Automatic alerts</h3>
+  <p class="note">These five all run from the Google Sheet script, on Google's own clock — not from the phone — because a phone stops running code the moment the screen locks. They only work once Google Sheet sync is set up below <i>and</i> the one-time Apps Script setup (further down) has been done.</p>
+  <p class="note"><b>1. Missed shot email</b> — if a shot isn't logged within 30 minutes of its scheduled time, one email per missed slot, checked every 15 minutes.</p>
+  <p class="note"><b>2. Low stock email (to you)</b> — when an item drops under 7 days of supply (Insulin instead warns at one bottle / 400 units left, since it's ordered further ahead), plus a calendar reminder on the predicted run-out day. Once per restock.</p>
+  <p class="note"><b>3. Vet reorder email</b> — Prednisolone and Syringes additionally trigger a short email straight to the vet at 10 days of supply, asking them to reorder and to call or reply when it's ready. Once per restock; cancel it from that item's card on the Stock tab if you've already reordered elsewhere.</p>
+  <p class="note"><b>4. "Running out" warnings in the app</b> — the home screen and Stock tab flag an item early, before either email above fires: 15 days for Prednisolone/Syringes, 7 days for everything else (or under a bottle for Insulin).</p>
+  <p class="note"><b>5. Monthly report</b> — on the 1st of each month, an AI-written summary of the last 30 days (medication totals, weight/glucose trends, incidents), compared against the 30 days before, emailed to you. Missing a Gemini API key just means plainer numbers, not no report.</p>
+
+  <h3 style="margin-top:18px">Data &amp; privacy</h3>
+  <p class="note">Everything lives on this phone unless you turn on Google Sheet sync. Nothing is uploaded otherwise. Back up from Setup → Your data now and then.</p>
+
+  <h3>One-time Apps Script setup</h3>
+  <p class="note">The alerts above need this done once, from the Apps Script editor (Extensions → Apps Script on your Google Sheet), after pasting the sync code in: fill in <b>ALERT_EMAIL</b> at the top, then run <b>installReminders</b>, <b>installStockAlerts</b> and <b>installMonthlyReport</b> once each from the function dropdown — <b>installStockAlerts</b> is the one that asks for calendar permission. A free Gemini key (Project Settings → Script Properties → <b>GEMINI_API_KEY</b>) gives the monthly report its write-up. Any later change to the script needs a redeploy — Deploy → Manage deployments → pencil → Version: New version — or new buttons answer "unknown action".</p>
+
+  <button class="btn sec" style="margin-top:14px" onclick="closeSheet()">Close</button>
 </div>
 
 <div id="toast"></div>
@@ -1418,6 +1458,10 @@ function vetSummary(days=30){
 }
 /* Read it before it goes anywhere: what gets handed to a vet is worth a look
    first, and half the time the answer to "how is he doing" is on this screen. */
+function openFeatures(){
+  document.getElementById('scrim').classList.add('on');
+  document.getElementById('featuresSheet').classList.add('on');
+}
 function openVetSummary(){
   document.getElementById('sumText').textContent=vetSummary();
   document.getElementById('scrim').classList.add('on');
@@ -1830,6 +1874,7 @@ function closeSheet(){
   document.getElementById('vetSheet').classList.remove('on');
   document.getElementById('urineSheet').classList.remove('on');
   document.getElementById('sumSheet').classList.remove('on');
+  document.getElementById('featuresSheet').classList.remove('on');
 }
 function saveEntry(){
   const o={type:document.getElementById('fType').value,
