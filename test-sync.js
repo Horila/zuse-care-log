@@ -653,8 +653,8 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   eq(mail.length, 2, 'two separate emails');
   ok(/running low on Syringes/.test(mail[0].subject), 'the self-reminder names them, and goes out first');
   eq(mail[1].to, 'hellopoole@natterjacksvet.com', 'the vet email goes to the vet, not the owner');
-  ok(/Reorder request: Syringes/.test(mail[1].subject), 'and says what it is');
-  ok(/60 syringes/.test(mail[1].body), 'asking for the fixed reorder amount');
+  ok(/Zuse Mihai U40 Syringes reorder request/.test(mail[1].subject), 'and says what it is');
+  ok(/order in 60 U40 Syringes/.test(mail[1].body), 'asking for the fixed reorder amount');
   ok(/07496 751 666/.test(mail[1].body), 'and to call this number when ready');
   eq(events.length, 1, 'only the self-reminder gets a calendar event');
 }
@@ -748,8 +748,8 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   eq(api.checkStock(), 1, 'the vet reorder fires even though the self-reminder rule would not');
   eq(mail.length, 1, 'one email');
   eq(mail[0].to, 'hellopoole@natterjacksvet.com', 'to the vet');
-  ok(/Reorder request: Prednisolone/.test(mail[0].subject), 'naming the item');
-  ok(/order 30 tablets of Prednisolone/.test(mail[0].body), 'asking for the fixed reorder amount');
+  ok(/Zuse Mihai Prednisolone reorder request/.test(mail[0].subject), 'naming the item');
+  ok(/order in 30 Prednisolone tablets/.test(mail[0].body), 'asking for the fixed reorder amount');
   ok(/07496 751 666/.test(mail[0].body), 'and to call this number when ready');
   eq(events.length, 0, 'the vet email gets no calendar reminder, that is the self-reminder\'s job');
 

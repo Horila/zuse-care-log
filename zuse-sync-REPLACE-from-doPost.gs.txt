@@ -646,7 +646,10 @@ const STOCK_PER_ROW = { 'Syringes': 'Insulin' };
 const VET_EMAIL = 'hellopoole@natterjacksvet.com';
 const VET_PHONE = '07496 751 666';
 const VET_REORDER_DAYS = 10;
-const VET_REORDER = { 'Prednisolone': { qty: 30, unit: 'tablets' }, 'Syringes': { qty: 60, unit: 'syringes' } };
+const VET_REORDER = {
+  'Prednisolone': { qty: 30, subjectLabel: 'Prednisolone', phrase: 'Prednisolone tablets' },
+  'Syringes': { qty: 60, subjectLabel: 'U40 Syringes', phrase: 'U40 Syringes' }
+};
 
 /** The two rules in one place, so the email and the app agree on "low". */
 function stockIsLow_(it, f) {
@@ -713,7 +716,7 @@ function checkStock() {
     emailLowStock_(low);
     low.forEach(function (x) { addReorderReminder_(x); });
   }
-  reorders.forEach(function (x) { emailVetReorder_(x.name, x.reorder); });
+  reorders.forEach(function (x) { emailVetReorder_(x.reorder); });
   return low.length + reorders.length;
 }
 
@@ -796,10 +799,17 @@ function emailLowStock_(low) {
 /** Short, polite ask to the vet to reorder and call when it's ready. Separate
  *  from emailLowStock_ above: different recipient, different day threshold,
  *  different wording. */
-function emailVetReorder_(name, reorder) {
-  MailApp.sendEmail(VET_EMAIL, 'Reorder request: ' + name,
-    'Hi,\n\nCould you please order ' + reorder.qty + ' ' + reorder.unit + ' of ' + name + ' for Zuse?\n\n' +
-    'Please call me on ' + VET_PHONE + ' when it is ready to collect.\n\nThanks!\n');
+function emailVetReorder_(reorder) {
+  MailApp.sendEmail(VET_EMAIL, 'Zuse Mihai ' + reorder.subjectLabel + ' reorder request',
+    'Hello team,\n\n' +
+    'I hope this email finds you well.\n\n' +
+    'I\'m writing to kindly ask if you could order in ' + reorder.qty + ' ' + reorder.phrase +
+    ' for Zuse Mihai, as he\'s running a little low.\n\n' +
+    'Whenever it\'s ready to collect, please give me a call on ' + VET_PHONE + ', or just reply ' +
+    'to this email and I\'ll pop in to pick it up. And of course, if you have any questions at ' +
+    'all, please don\'t hesitate to call.\n\n' +
+    'Thank you so much, as always, for taking such good care of Zuse — it really means a lot.\n\n' +
+    'Best wishes,\nHoratiu Mihai\n');
 }
 
 /** A calendar event on your own Google account, so the reminder reaches the
