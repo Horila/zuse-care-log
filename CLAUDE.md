@@ -12,8 +12,8 @@ and the tests use only Node's stdlib `assert`.
 ## Commands
 
 ```
-node test-logic.js    # pure logic lifted out of zuse-care-log.html (83 checks)
-node test-sync.js     # the Apps Script backend under stubbed Google services (183 checks)
+node test-logic.js    # pure logic lifted out of zuse-care-log.html (86 checks)
+node test-sync.js     # the Apps Script backend under stubbed Google services (210 checks)
 ```
 
 There is no single-test flag. Both files are flat scripts — comment out blocks
@@ -94,7 +94,7 @@ Nothing enforces these across the app/script boundary; a mismatch is silent.
 | `LOW_LEFT` | `STOCK_LOW_LEFT` | display name (`Insulin`) |
 | `PER_SHOT` | `STOCK_PER_ROW` | display name (`Syringes`) |
 | `LOW_DAYS` | `STOCK_LOW_DAYS` | — |
-| `VET_REORDER` (array of type ids) | `VET_REORDER` (object of qty/unit) | display name (`Prednisolone`, `Syringes`) |
+| `VET_REORDER` (array of type ids) | `VET_REORDER` (object of qty/subjectLabel/phrase) | display name (`Prednisolone`, `Syringes`) |
 
 The script side keys off the display name because that is what `pushStock` writes
 into the Stock tab's ITEM column, and what `canonType_` normalises sheet rows to.
@@ -174,4 +174,11 @@ recordings from the removed vet-audio feature stay readable.
 
 ## Layout of zuse-care-log.html
 
-One 1940-line file: styles 13–208, markup 210–511, script 512–1938.
+One ~1970-line file: styles 13–208, markup 210–511, script 512–1968.
+
+## Other files at the root
+
+- `index.html` — a one-line meta-refresh to `zuse-care-log.html`, so GitHub
+  Pages' default document (the bare repo URL) still opens the app.
+- `manifest.json` — PWA metadata (name, icons, display mode) for "Add to
+  Home Screen"; not something behaviour changes touch.
