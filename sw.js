@@ -5,7 +5,7 @@
  * this one. That is the right trade for an app opened many times a day.
  * Bump CACHE to evict old caches on activate.
  */
-const CACHE = 'zuse-v3';
+const CACHE = 'zuse-v4';
 const APP = './zuse-care-log.html';
 const SHELL = [APP, './index.html', './manifest.json'];
 
