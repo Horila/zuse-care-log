@@ -1831,6 +1831,7 @@ async function syncNow(){
     toast(`Synced — ${pushed} pushed, ${pulled} pulled`);
   }catch(err){
     toast('Sync error: '+(err&&err.message?err.message:err));
+    registerSyncRetry();
   }finally{
     btn.textContent='Sync with Google Sheet';btn.disabled=false;
     fab.classList.remove('busy');fab.disabled=false;
@@ -2007,9 +2008,25 @@ function tick(){
   if(vetState){openVetSheet();toast('Vet visit resumed');}
   tick();setInterval(tick,20000);
   document.getElementById('hsub').textContent=`${entries.length} entries logged`;
-  if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('sw.js').then(reg=>{registerPeriodicSync(reg)}).catch(()=>{});
+    navigator.serviceWorker.addEventListener('message',ev=>{
+      if(ev.data&&ev.data.type==='zuse-sync-now'&&cfg.syncUrl&&cfg.syncKey)syncNow();
+    });
+  }
   sweepMedia();
 })();
+async function registerPeriodicSync(reg){
+  if(!('periodicSync'in reg))return;
+  try{
+    const status=await navigator.permissions.query({name:'periodic-background-sync'});
+    if(status.state==='granted')await reg.periodicSync.register('zuse-periodic-sync',{minInterval:12*60*60*1000});
+  }catch(e){}
+}
+async function registerSyncRetry(){
+  if(!('serviceWorker'in navigator)||!('SyncManager'in window))return;
+  try{const reg=await navigator.serviceWorker.ready;await reg.sync.register('zuse-sync-retry')}catch(e){}
+}
 </script>
 </body>
 </html>

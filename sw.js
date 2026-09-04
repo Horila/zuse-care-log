@@ -5,9 +5,28 @@
  * this one. That is the right trade for an app opened many times a day.
  * Bump CACHE to evict old caches on activate.
  */
-const CACHE = 'zuse-v4';
+const CACHE = 'zuse-v5';
 const APP = './zuse-care-log.html';
 const SHELL = [APP, './index.html', './manifest.json'];
+const PERIODIC_SYNC_TAG = 'zuse-periodic-sync';
+const RETRY_SYNC_TAG = 'zuse-sync-retry';
+
+// Neither event can reach the Google Sheet itself — the sync secret and the
+// merge logic live in the page, not here. Both just wake an open tab (if any)
+// to run its own syncNow(). Chrome also decides the real fire time for
+// periodicsync; the tag's minInterval is a hint, not a schedule.
+async function wakeClientsToSync() {
+  const clientsList = await self.clients.matchAll({ type: 'window' });
+  clientsList.forEach(c => c.postMessage({ type: 'zuse-sync-now' }));
+}
+
+self.addEventListener('periodicsync', ev => {
+  if (ev.tag === PERIODIC_SYNC_TAG) ev.waitUntil(wakeClientsToSync());
+});
+
+self.addEventListener('sync', ev => {
+  if (ev.tag === RETRY_SYNC_TAG) ev.waitUntil(wakeClientsToSync());
+});
 
 self.addEventListener('install', ev => {
   ev.waitUntil(
