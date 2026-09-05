@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "io.github.horila.twa",
+        "sha256_cert_fingerprints": ["7F:3F:6C:A8:96:D2:86:01:32:AF:80:96:8E:01:21:C8:75:EE:42:9D:59:20:7D:B0:5D:BF:BA:D2:1B:6B:EA:4C"]
+      }
+    }]
