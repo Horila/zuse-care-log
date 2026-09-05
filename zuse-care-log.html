@@ -229,6 +229,7 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
   </div>
   <div class="walkbar" id="vetBar">
     <span>🏥 At the vets — <b class="mono" id="vetElapsed">0h 00m</b></span>
+    <button class="btn sec" style="width:auto;margin:0;padding:8px 12px;font-size:13px" onclick="showVetSheet()" title="Weight, glucose, notes">📋</button>
     <button class="btn" style="width:auto;margin:0;padding:8px 14px;font-size:13px" onclick="endVet()">End Visit</button>
   </div>
 </header>
@@ -424,7 +425,7 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
 </div>
 
 <nav><div class="nrow" id="nav"></div></nav>
-<div class="scrim" id="scrim" onclick="if(!(vetState&&document.getElementById('vetSheet').classList.contains('on')))closeSheet()"></div>
+<div class="scrim" id="scrim" onclick="closeSheet()"></div>
 
 <div class="sheet" id="sheet">
   <div class="grab"></div>
@@ -451,6 +452,7 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
 
 <div class="sheet" id="vetSheet">
   <div class="grab"></div>
+  <button class="btn sec" style="position:absolute;top:14px;right:16px;width:auto;margin:0;padding:6px 10px;font-size:13px" onclick="closeSheet()">✕</button>
   <h2>Vet visit</h2>
   <p class="note" style="margin-bottom:14px">Time there: <b class="mono" id="vetDuration">—</b></p>
   <div class="fld">
@@ -900,6 +902,9 @@ function openVetSheet(){
   document.getElementById('vetWeight').value='';
   document.getElementById('vetGlucose').value='';
   document.getElementById('vetNotes').value='';
+  showVetSheet();
+}
+function showVetSheet(){
   renderVetBar();
   document.getElementById('scrim').classList.add('on');
   document.getElementById('vetSheet').classList.add('on');
