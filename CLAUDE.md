@@ -174,7 +174,7 @@ recordings from the removed vet-audio feature stay readable.
 
 ## Layout of zuse-care-log.html
 
-One ~1970-line file: styles 13–208, markup 210–511, script 512–1968.
+One ~2040-line file: styles 13–208, markup 210–553, script 554–2035.
 
 ## Other files at the root
 
@@ -182,3 +182,27 @@ One ~1970-line file: styles 13–208, markup 210–511, script 512–1968.
   Pages' default document (the bare repo URL) still opens the app.
 - `manifest.json` — PWA metadata (name, icons, display mode) for "Add to
   Home Screen"; not something behaviour changes touch.
+- `.well-known/assetlinks.json`, `.nojekyll` — see "The Android app" below.
+
+## The Android app
+
+The user also has this site packaged as an Android app: a Trusted Web
+Activity built with PWABuilder (`io.github.horila.twa`). It wraps this same
+site. There is no separate app codebase. A change here reaches the Android
+app too, on the same push-then-cache delay as the PWA.
+
+This repo (`zuse-care-log`) is a GitHub Pages project page. It serves under
+`https://horila.github.io/zuse-care-log/`, not the domain root. Android
+checks Digital Asset Links (the file that lets the app run without a
+browser bar) at the domain root. The copy that matters for verification
+lives in a separate repo, `horila.github.io`, which serves
+`https://horila.github.io/.well-known/assetlinks.json`.
+
+This repo also carries its own copy at `.well-known/assetlinks.json`. It
+serves at `https://horila.github.io/zuse-care-log/.well-known/assetlinks.json`.
+Keep both copies in sync if the fingerprint or package name ever changes.
+`.nojekyll` exists in both repos because GitHub Pages' default Jekyll build
+skips dot-folders like `.well-known` otherwise.
+
+The signing keystore and the Play Store package stay in the user's local
+Downloads folder, gitignored, in neither repo.
