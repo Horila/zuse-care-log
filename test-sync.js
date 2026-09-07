@@ -557,7 +557,7 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   eq(items.length, 1, 'the Stock tab is read');
   eq(items[0].name, 'Prednisolone', 'by canonical name');
 
-  const f = api.stockForecast_(items[0], api.readRows(), new Date());
+  const f = api.stockForecast_(items[0], api.readRows(), new Date(at(2026, 8, 28, 12, 0)));
   eq(f.left, 20, 'SHARED FIXTURE left: 30 in, 10 used');
   eq(f.rate, 0.5, 'SHARED FIXTURE rate: 0.5 a day');
   eq(f.days, 40, 'SHARED FIXTURE days: 20 left at 0.5 a day');
@@ -569,7 +569,7 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   const { api } = load(at(2026, 8, 28, 12, 0), rows, {
     stockRows: [['Chicken Slice', 2000, 'g', '15/08/2026']],
   });
-  const f = api.stockForecast_(api.readStockTab_()[0], api.readRows(), new Date());
+  const f = api.stockForecast_(api.readStockTab_()[0], api.readRows(), new Date(at(2026, 8, 28, 12, 0)));
   eq(f.used, 1400, 'the emoji spelling counts against the plain one');
   eq(f.left, 600, 'so what is left is right');
 }
@@ -642,7 +642,7 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   const { api, mail, events } = load(at(2026, 8, 28, 12, 0), rows, {
     stockRows: [['Syringes', 40, 'syringes', '15/08/2026']],
   });
-  const f = api.stockForecast_(api.readStockTab_()[0], api.readRows(), new Date());
+  const f = api.stockForecast_(api.readStockTab_()[0], api.readRows(), new Date(at(2026, 8, 28, 12, 0)));
   eq(f.used, 28, '28 shots is 28 syringes, not 448');
   eq(f.rate, 2, 'two a day');
   eq(f.left, 12, '40 in, 28 used');
@@ -666,7 +666,7 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   const { api, mail } = load(at(2026, 8, 28, 12, 0), rows, {
     stockRows: [['Insulin', 500, 'units', '15/08/2026']],
   });
-  const f = api.stockForecast_(api.readStockTab_()[0], api.readRows(), new Date());
+  const f = api.stockForecast_(api.readStockTab_()[0], api.readRows(), new Date(at(2026, 8, 28, 12, 0)));
   eq(f.days, 48, 'a week-of-supply rule would say nothing for another 41 days');
   eq(api.checkStock(), 1, 'the bottle rule speaks up now, while there is time to order');
   ok(/388 units left/.test(mail[0].body), 'and says what is left');
@@ -848,7 +848,7 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
 
   const it = api.readStockTab_()[0];
   eq(it.since, '15/08/2026', 'and it reads back as the string that was written');
-  const f = api.stockForecast_(it, api.readRows(), new Date());
+  const f = api.stockForecast_(it, api.readRows(), new Date(at(2026, 8, 28, 8, 0)));
   eq(f.left, 76, 'the forecast works off the pushed baseline');
   eq(f.days, 4, 'and predicts four days');
 

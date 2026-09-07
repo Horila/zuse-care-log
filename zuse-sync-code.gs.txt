@@ -27,7 +27,7 @@ function doGet(e) {
   }
   const action = e.parameter.action || 'list';
   if (action === 'list') {
-    return jsonOut({ rows: readRows() });
+    return jsonOut({ rows: readRows(), stock: readStockTab_() });
   }
   return jsonOut({ error: 'unknown action' });
 }

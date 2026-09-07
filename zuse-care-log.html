@@ -1775,6 +1775,21 @@ async function syncNow(){
     if(listData.error){toast('Sync failed: '+syncErr(listData.error));return}
     const sheetRows=listData.rows||[];
 
+    // pull stock baselines too: the Stock tab is a mirror of whichever device
+    // last synced, so a refill entered on one device only reaches the others
+    // here — the newer `since` wins, and pushStock below sends the merged
+    // result back up so every device converges on it.
+    (listData.stock||[]).forEach(sr=>{
+      const t=Object.keys(T).find(k=>T[k].n===sr.name);
+      if(!t)return;
+      const since=isoFromDmy(sr.since);
+      const local=cfg.stock&&cfg.stock[t];
+      if(!local||since>local.since){
+        cfg.stock=cfg.stock||{};
+        cfg.stock[t]={qty:sr.qty,since};
+      }
+    });
+
     // sheet row -> {dateIso,time24,typeKey,qty,notes} ; skip unparseable
     const sheetParsed=[];
     const sheetKeys=new Set();
@@ -1894,6 +1909,10 @@ function saveEntry(){
   else entries.push(Object.assign({id:uid()},o));
   save();renderAll();closeSheet();sweepMedia();
   toast(editId?'Entry updated':`${T[o.type].n} logged`);
+  // The script's missed-shot checker reads the sheet every 15 min; without this,
+  // a shot logged but not yet manually synced looks unlogged and gets a false
+  // "not logged" email until the next sync.
+  if(o.type==='insulin'&&cfg.syncUrl&&cfg.syncKey)syncNow();
 }
 function delEntry(){
   entries=entries.filter(e=>e.id!==editId);save();renderAll();closeSheet();sweepMedia();toast('Entry deleted');
