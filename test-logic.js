@@ -49,7 +49,7 @@ const code = [
   'const pad=n=>String(n).padStart(2,"0");',
   'const iso=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;',
   grab('shouldAutoEnd'), grab('haversine'),
-  grabConst('BOTTLE'), grabConst('LOW_LEFT'), grabConst('PER_SHOT'), grabConst('isoBack'),
+  grabConst('BOTTLE'), grabConst('LOW_LEFT'), grabConst('PER_SHOT'), grabConst('FIXED_RATE'), grabConst('isoBack'),
   grab('usedSince'), grab('rateOver'), grab('dailyUse'),
   grab('stockLeft'), grab('stockDetail'), grab('trackedStock'),
   grabConst('isLowStock'), grab('lowStock'), grab('stockLabel'),
@@ -96,22 +96,34 @@ ok(Math.abs(api.haversine(51.5, -0.12, 51.5, -0.12)) < 1e-6, 'zero distance to s
 /* ---- medicine stock ---- */
 {
   // 14 units used per day for 14 days, restocked to 1000 seven days ago.
+  // cerenia carries no FIXED_RATE, so this still exercises the real burn-rate divide.
   const e = [];
-  for (let i = 0; i < 20; i++) e.push({ type: 'insulin', date: dayAgo(i), time: '11:30', qty: 8 });
-  api.setState(e, { gap: 12, stock: { insulin: { qty: 1000, since: dayAgo(7) } } });
-  const s = api.stockLeft('insulin');
+  for (let i = 0; i < 20; i++) e.push({ type: 'cerenia', date: dayAgo(i), time: '11:30', qty: 8 });
+  api.setState(e, { gap: 12, stock: { cerenia: { qty: 1000, since: dayAgo(7) } } });
+  const s = api.stockLeft('cerenia');
   eq(s.left, 1000 - 8 * 8, 'counts the 8 doses on or after the restock date (inclusive)');
   eq(Math.round(s.rate * 100) / 100, 8, 'burn rate is 8 units/day, 14 days inclusive of today');
   eq(s.days, Math.floor((1000 - 64) / 8), 'days left = remaining / daily burn');
 }
 {
   // A twice-weekly tablet must not read as a daily one: 4 doses in 14 days.
-  const e = [0, 3, 7, 10].map(i => ({ type: 'pred', date: dayAgo(i), time: '23:30', qty: 0.5 }));
-  api.setState(e, { gap: 12, stock: { pred: { qty: 10, since: dayAgo(14) } } });
-  const s = api.stockLeft('pred');
+  // synulox carries no FIXED_RATE, so this still exercises the window divide.
+  const e = [0, 3, 7, 10].map(i => ({ type: 'synulox', date: dayAgo(i), time: '23:30', qty: 0.5 }));
+  api.setState(e, { gap: 12, stock: { synulox: { qty: 10, since: dayAgo(14) } } });
+  const s = api.stockLeft('synulox');
   eq(s.left, 8, '10 minus four 0.5 doses');
   eq(s.rate, 2 / 14, 'divides by 14 days, not by the 4 days that have entries');
   eq(s.days, 56, '8 left at 0.1428/day is 56 days, not 14');
+}
+{
+  // Zuse takes these six on a fixed routine, so their rate must not move just
+  // because nothing was logged - FIXED_RATE wins over real (zero) usage.
+  const fixed = { insulin: 17, pred: 0.5, samylin: 2, syringe: 2, para: 1, food: 4 };
+  Object.keys(fixed).forEach(t => {
+    api.setState([], { gap: 12, stock: { [t]: { qty: 100, since: dayAgo(5) } } });
+    eq(api.stockLeft(t).rate, fixed[t], `${t}: rate is fixed at ${fixed[t]}/day with nothing logged`);
+    eq(api.stockLeft(t).days, Math.floor(100 / fixed[t]), `${t}: days-left uses the fixed rate`);
+  });
 }
 {
   // Deleting an entry must correct the count with no extra bookkeeping.
@@ -138,10 +150,19 @@ ok(Math.abs(api.haversine(51.5, -0.12, 51.5, -0.12)) < 1e-6, 'zero distance to s
   eq(api.stockLabel(low[0]), 'out', 'negative remaining reads as out, not a negative number');
 }
 {
-  // No use in 14 days: days-left is unknowable, and must not divide by zero.
+  // pred has a FIXED_RATE, so even a stale single dose still yields a days
+  // estimate off the fixed rate - it must still not raise a false alarm.
   api.setState([{ type: 'pred', date: dayAgo(40), time: '11:30', qty: 1 }],
                { gap: 12, stock: { pred: { qty: 10, since: dayAgo(60) } } });
   const s = api.stockLeft('pred');
+  eq(s.days, 18, '9 left (10 minus the one stale dose) at the fixed 0.5/day');
+  eq(api.lowStock().length, 0, 'and does not raise a false low-stock alarm');
+}
+{
+  // synulox has no FIXED_RATE, so zero real usage must still avoid dividing by zero.
+  api.setState([{ type: 'synulox', date: dayAgo(40), time: '11:30', qty: 1 }],
+               { gap: 12, stock: { synulox: { qty: 10, since: dayAgo(60) } } });
+  const s = api.stockLeft('synulox');
   eq(s.days, null, 'zero burn gives no estimate rather than Infinity');
   eq(api.lowStock().length, 0, 'and does not raise a false low-stock alarm');
 }
@@ -177,14 +198,14 @@ ok(Math.abs(api.haversine(51.5, -0.12, 51.5, -0.12)) < 1e-6, 'zero distance to s
 
 /* ---- LOW_DAYS_OVERRIDE is per-type, not global ---- */
 {
-  // Same 1-a-day, 12-days-left shape for two different types: pred is
-  // overridden to 15 days and should warn; an unrelated type stays on the
-  // ordinary 7-day rule and should not.
+  // pred (fixed 0.5/day) at 6 left is 12 days: inside its 15-day override.
   const e = [];
   for (let i = 0; i < 14; i++) e.push({ type: 'pred', date: dayAgo(i), time: '09:00', qty: 1 });
-  api.setState(e, { gap: 12, stock: { pred: { qty: 26, since: dayAgo(13) } } });
-  eq(api.lowStock().length, 1, 'prednisolone: 12 left is inside its 15-day override');
+  api.setState(e, { gap: 12, stock: { pred: { qty: 20, since: dayAgo(13) } } });
+  eq(api.lowStock().length, 1, 'prednisolone: 6 left at the fixed 0.5/day is 12 days, inside its 15-day override');
 
+  // para (fixed 1/day) at 12 left is 12 days: outside the ordinary 7-day rule,
+  // which has no override of its own.
   const e2 = e.map(x => Object.assign({}, x, { type: 'para' }));
   api.setState(e2, { gap: 12, stock: { para: { qty: 26, since: dayAgo(13) } } });
   eq(api.lowStock().length, 0, 'paracetamol has no override: 12 days is outside the ordinary 7-day rule');
@@ -194,14 +215,15 @@ ok(Math.abs(api.haversine(51.5, -0.12, 51.5, -0.12)) < 1e-6, 'zero distance to s
 {
   const e = [];
   for (let i = 0; i < 14; i++) e.push({ type: 'insulin', date: dayAgo(i), time: '11:30', qty: 8 });
-  // 500 in, 112 used: 388 left. At 8/day that is 48 days - a week's rule would
-  // say nothing, and by then there would be no time to order a bottle.
+  // 500 in, 112 used: 388 left. At the fixed 17/day that is 22 days - a
+  // week's rule would say nothing, and by then there would be no time to
+  // order a bottle.
   api.setState(e, { gap: 12, stock: { insulin: { qty: 500, since: dayAgo(13) } } });
   const low = api.lowStock();
   eq(low.length, 1, 'under one bottle is low however many days that is');
-  eq(low[0].days, 48, 'even with over a month of supply left');
+  eq(low[0].days, 22, 'even with three weeks of supply left');
   eq(api.stockLabel(low[0]), '388 units left · 1 bottle',
-     'the label says the bottle, since a 48-day countdown under "running low" reads as a bug');
+     'the label says the bottle, since a 22-day countdown under "running low" reads as a bug');
   api.setState(e, { gap: 12, stock: { insulin: { qty: 1000, since: dayAgo(13) } } });
   eq(api.lowStock().length, 0, '888 left is more than a bottle, so nothing is said');
   api.setState(e, { gap: 12, stock: { insulin: { qty: 112, since: dayAgo(13) } } });
@@ -307,18 +329,28 @@ eq(/\bAudioStore\b/.test(js), false, 'no dangling AudioStore references after th
   eq(s.rate, 0.5, 'SHARED FIXTURE rate: 0.5 a day');
   eq(s.days, 40, 'SHARED FIXTURE days: 20 left at 0.5 a day');
 
-  // the window is selectable, and a flat divide means it stays 0.5 either way
-  eq(api.stockLeft('pred', 7).rate, 0.5, 'the 7-day window sees the same steady rate');
-  eq(api.stockLeft('pred', 30).rate, 20 * 0.5 / 30, 'the 30-day window dilutes across days with no entries');
-  eq(api.stockLeft('pred', 30).days, Math.floor(20 / (10 / 30)), 'and predicts further out because of it');
+  // pred's rate is fixed, so the window can't move it - real usage would have
+  // diluted at 30 days, but FIXED_RATE wins regardless.
+  eq(api.stockLeft('pred', 7).rate, 0.5, 'the 7-day window sees the same fixed rate');
+  eq(api.stockLeft('pred', 30).rate, 0.5, 'so does the 30-day window');
 }
 {
-  // A course that stopped a week ago must not read as "still going".
+  // synulox has no FIXED_RATE, so the window-divide behaviour still applies
+  // to it: the flat rate stays 0.5 either way when use is steady...
   const e = [];
-  for (let i = 7; i < 21; i++) e.push({ type: 'pred', date: dayAgo(i), time: '11:30', qty: 1 });
-  api.setState(e, { gap: 12, stock: { pred: { qty: 10, since: dayAgo(21) } } });
-  eq(api.stockLeft('pred', 7).days, null, 'nothing used in the last 7 days means no prediction');
-  eq(api.stockLeft('pred', 14).rate, 7 / 14, 'the 14-day window still sees the tail of the course');
+  for (let i = 0; i < 20; i++) e.push({ type: 'synulox', date: dayAgo(i), time: '11:30', qty: 0.5 });
+  api.setState(e, { gap: 12, stock: { synulox: { qty: 30, since: dayAgo(20) } } });
+  eq(api.stockLeft('synulox', 7).rate, 0.5, 'the 7-day window sees the same steady rate');
+  eq(api.stockLeft('synulox', 30).rate, 20 * 0.5 / 30, 'the 30-day window dilutes across days with no entries');
+  eq(api.stockLeft('synulox', 30).days, Math.floor(20 / (10 / 30)), 'and predicts further out because of it');
+}
+{
+  // ...and a course that stopped a week ago must not read as "still going".
+  const e = [];
+  for (let i = 7; i < 21; i++) e.push({ type: 'synulox', date: dayAgo(i), time: '11:30', qty: 1 });
+  api.setState(e, { gap: 12, stock: { synulox: { qty: 10, since: dayAgo(21) } } });
+  eq(api.stockLeft('synulox', 7).days, null, 'nothing used in the last 7 days means no prediction');
+  eq(api.stockLeft('synulox', 14).rate, 7 / 14, 'the 14-day window still sees the tail of the course');
 }
 {
   // Trend: the last week against the last month.
@@ -337,10 +369,10 @@ eq(/\bAudioStore\b/.test(js), false, 'no dangling AudioStore references after th
   eq(Math.round((x.out - new Date()) / 864e5), x.days, 'and it is days-left away');
 }
 {
-  // An item with a countdown but no recent use predicts nothing rather than
-  // dividing by zero and claiming Infinity days.
-  api.setState([], { gap: 12, stock: { pred: { qty: 5, since: dayAgo(3) } } });
-  const x = api.stockDetail('pred');
+  // An item with no FIXED_RATE and a countdown but no recent use predicts
+  // nothing rather than dividing by zero and claiming Infinity days.
+  api.setState([], { gap: 12, stock: { synulox: { qty: 5, since: dayAgo(3) } } });
+  const x = api.stockDetail('synulox');
   eq(x.days, null, 'no use logged means no prediction');
   eq(x.out, null, 'and therefore no run-out date');
   eq(x.left, 5, 'but what is in hand is still known');

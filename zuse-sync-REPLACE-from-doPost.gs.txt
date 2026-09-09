@@ -639,6 +639,10 @@ const STOCK_LOW_LEFT = { 'Insulin': 400 };
  * number of Insulin rows and not the sum of their units. Matches PER_SHOT. */
 const STOCK_PER_ROW = { 'Syringes': 'Insulin' };
 
+/* Zuse takes these on a fixed routine, so a logging gap must not read as a
+ * changed burn rate. Keyed by ITEM name; keep in step with FIXED_RATE in the app. */
+const STOCK_FIXED_RATE = { 'Samylin': 2, 'Prednisolone': 0.5, 'Insulin': 17, 'Syringes': 2, 'Paracetamol': 1, 'Canned Food': 4 };
+
 /* A second, separate alert: Prednisolone and Syringes also go straight to the
  * vet asking them to reorder, once per restock cycle, independent of the
  * email above. Keyed by the ITEM name on the Stock tab; keep VET_REORDER in
@@ -765,7 +769,7 @@ function stockForecast_(it, rows, now) {
 
   // Fixed divisor, not "days that happen to have an entry": dividing by the
   // latter reads a twice-weekly tablet as a daily one and halves the estimate.
-  const rate = recent / STOCK_WINDOW;
+  const rate = STOCK_FIXED_RATE[it.name] !== undefined ? STOCK_FIXED_RATE[it.name] : recent / STOCK_WINDOW;
   const left = round_(it.qty - used);
   const days = rate > 0 ? Math.floor(Math.max(0, left) / rate) : null;
   return {

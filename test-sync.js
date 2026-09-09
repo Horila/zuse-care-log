@@ -584,7 +584,7 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   eq(mail.length, 1, 'and it is emailed');
   ok(/running low on Insulin/.test(mail[0].subject), 'the subject names it');
   ok(/76 units left/.test(mail[0].body), '300 in, 224 used');
-  ok(/about 16 units a day/.test(mail[0].body), 'with the burn rate');
+  ok(/about 17 units a day/.test(mail[0].body), 'with the fixed daily rate, not the logged 16/day');
   ok(/4 days/.test(mail[0].body), 'and the days left');
 
   eq(events.length, 1, 'a calendar reminder is created');
@@ -660,26 +660,27 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
 }
 {
   // Insulin is bought by the bottle, so days of supply is the wrong alarm: at
-  // 8 units a day, 388 left is 48 days away and still the last bottle.
+  // the fixed 17 units a day, 388 left is 22 days away and still the last bottle.
   const rows = [];
   for (let d = 15; d <= 28; d++) rows.push([cell(2026, 8, d), cell(2026, 8, d, 11, 30), 'Insulin', '8', '']);
   const { api, mail } = load(at(2026, 8, 28, 12, 0), rows, {
     stockRows: [['Insulin', 500, 'units', '15/08/2026']],
   });
   const f = api.stockForecast_(api.readStockTab_()[0], api.readRows(), new Date(at(2026, 8, 28, 12, 0)));
-  eq(f.days, 48, 'a week-of-supply rule would say nothing for another 41 days');
+  eq(f.days, 22, 'a week-of-supply rule would say nothing for another 15 days');
   eq(api.checkStock(), 1, 'the bottle rule speaks up now, while there is time to order');
   ok(/388 units left/.test(mail[0].body), 'and says what is left');
 }
 {
-  // The bottle rule can fire with nothing logged in a fortnight, and then there
-  // is no rate to forecast from. Neither the email nor the calendar may break.
+  // Insulin has a FIXED_RATE, so even with nothing logged in a fortnight the
+  // bottle rule still gets a real days estimate instead of "no estimate".
   const { api, mail, events } = load(at(2026, 8, 28, 12, 0), [], {
     stockRows: [['Insulin', 100, 'units', '15/08/2026']],
   });
-  eq(api.checkStock(), 1, 'a bottle rule needs no burn rate');
-  ok(/no estimate/.test(mail[0].body), 'the email says so rather than printing "null days"');
-  eq(events.length, 0, 'and no calendar event is invented for a day nobody can name');
+  eq(api.checkStock(), 1, 'a bottle rule fires on the fixed rate with nothing logged');
+  ok(/about 17 units a day/.test(mail[0].body), 'the fixed rate stands in for real usage');
+  ok(/5 days/.test(mail[0].body), '100 left at 17\\/day is 5 days');
+  eq(events.length, 1, 'and a calendar reminder can now be made for that day');
 }
 
 /* ============ the two new POST actions ==================================== */

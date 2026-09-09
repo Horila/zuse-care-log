@@ -95,9 +95,16 @@ Nothing enforces these across the app/script boundary; a mismatch is silent.
 | `PER_SHOT` | `STOCK_PER_ROW` | display name (`Syringes`) |
 | `LOW_DAYS` | `STOCK_LOW_DAYS` | — |
 | `VET_REORDER` (array of type ids) | `VET_REORDER` (object of qty/subjectLabel/phrase) | display name (`Prednisolone`, `Syringes`) |
+| `FIXED_RATE` | `STOCK_FIXED_RATE` | display name (`Insulin`, `Prednisolone`, `Syringes`, `Paracetamol`, `Samylin`, `Canned Food`) |
 
 The script side keys off the display name because that is what `pushStock` writes
 into the Stock tab's ITEM column, and what `canonType_` normalises sheet rows to.
+
+`FIXED_RATE`/`STOCK_FIXED_RATE` override the days-left calculation for six items
+Zuse takes on a fixed routine (Samylin 2/day, Prednisolone 0.5/day, Insulin 17
+units/day, Syringes 2/day, Paracetamol 1/day, Canned Food 4/day), on both the app
+and the backend, so a missed log entry never reads as a changed burn rate. Every
+other stockable item still derives its rate from real logged usage.
 
 `LOW_DAYS_OVERRIDE` (app-only) widens the "running out" warning window per type
 (Prednisolone and Syringes show at 15 days instead of 7) so it fires ahead of the

@@ -45,14 +45,15 @@ select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,va
 
 /* header */
 header{padding:calc(14px + env(safe-area-inset-top)) 0 6px;position:sticky;top:0;z-index:40;background:linear-gradient(180deg,var(--bg) 72%,transparent)}
-.floatSync{position:fixed;top:calc(58px + env(safe-area-inset-top));right:14px;z-index:50;width:42px;height:42px;border-radius:12px;background:var(--surf2);border:1px solid var(--line);display:grid;place-items:center;font-size:19px;color:var(--mu);box-shadow:0 2px 10px rgba(0,0,0,.25)}
+.floatSync{position:fixed;top:calc(58px + env(safe-area-inset-top));right:14px;z-index:50;min-width:60px;height:60px;padding:4px 8px;border-radius:16px;background:var(--surf2);border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;font-size:23px;color:var(--mu);box-shadow:0 2px 10px rgba(0,0,0,.25)}
+.floatSync .t{font-size:9.5px;font-family:monospace;opacity:.8;line-height:1}
 .floatSync:active{transform:scale(.94)}
 /* A tap on a fixed button gives no feedback of its own, so a sync that takes a
    few seconds looks like a press that never registered. Spin while it runs. */
 @keyframes spin{to{transform:rotate(360deg)}}
 .floatSync.busy{border-color:var(--insulin);color:var(--insulin)}
-.floatSync.busy span{display:block;animation:spin .9s linear infinite}
-@media (prefers-reduced-motion:reduce){.floatSync.busy span{animation:pulse 1s ease-in-out infinite}}
+.floatSync.busy .ic{display:block;animation:spin .9s linear infinite}
+@media (prefers-reduced-motion:reduce){.floatSync.busy .ic{animation:pulse 1s ease-in-out infinite}}
 @keyframes pulse{50%{opacity:.35}}
 .hrow{display:flex;align-items:center;gap:11px}
 .pip{width:38px;height:38px;border-radius:12px;background:linear-gradient(150deg,#2C3B47,#16202A);display:grid;place-items:center;font-size:20px;border:1px solid var(--line)}
@@ -234,7 +235,7 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
   </div>
 </header>
 
-<button class="floatSync" id="floatSync" onclick="syncNow()" title="Sync with Google Sheet"><span>🔄</span></button>
+<button class="floatSync" id="floatSync" onclick="syncNow()" title="Sync with Google Sheet"><span class="ic">🔄</span><span class="t" id="floatSyncTime"></span></button>
 
 <!-- ============ TODAY ============ -->
 <div class="view on" id="v-today">
@@ -987,8 +988,8 @@ function renderRing(){
     st.style.color=cvar('--mu');st.style.borderColor=cvar('--line');stx.textContent='Waiting';
     return;
   }
-  // runRoutine stamps each item a minute apart, so the shot can be seconds in
-  // the future; without the clamp the ring floors that to "-1h 00".
+  // A clock tick between "now" being read here and the shot's own timestamp
+  // can put it a second in the future; without the clamp that floors to "-1h 00".
   const mins=Math.max(0,(now-last)/6e4), gap=cfg.gap*60, frac=Math.min(mins/gap,1);
   arc.style.strokeDashoffset=C*(1-frac);
   const h=Math.floor(mins/60), m=Math.round(mins%60);
@@ -1018,6 +1019,14 @@ function routineDone(which){
   const inWin=e=>{const eh=+e.time.split(':')[0];return which==='am'?(eh>=amH-3&&eh<amH+8):(eh>=amH+8||eh<amH-3)};
   return list.map(([ty])=>today.some(e=>e.type===ty&&inWin(e)));
 }
+/* Chicken is weighed out fresh each time, so its qty can't default like a
+   fixed tablet dose — ask, same as the quick-log tile does. Cancel skips it. */
+function chickenQty(defaultQty){
+  const v=prompt('Grams of chicken given?',defaultQty);
+  if(v===null)return null;
+  const n=+v;
+  return n>0?n:defaultQty;
+}
 function renderChecks(){
   const w=currentRoutine(), list=cfg[w], done=routineDone(w);
   document.getElementById('routineName').textContent=w==='am'?'Morning routine':'Night routine';
@@ -1030,7 +1039,9 @@ function renderChecks(){
     b.onclick=()=>{
       if(done[i]){toast(T[ty].n+' already logged');return}
       if(ty==='insulin'&&!insulinGuardOk())return;
-      add(ty,q,'');toast(T[ty].n+' logged');
+      let qty=q;
+      if(ty==='chicken'){qty=chickenQty(q);if(qty===null)return}
+      add(ty,qty,'');toast(T[ty].n+' logged');
     };
     box.appendChild(b);
   });
@@ -1040,18 +1051,30 @@ function renderChecks(){
   else{btn.textContent=`Log the ${left} left`;btn.className='runbtn';btn.onclick=()=>runRoutine(w)}
 }
 function runRoutine(w){
-  const done=routineDone(w);let n=0;
+  const done=routineDone(w);
   // Ask once, before the loop. Declining skips ONLY the insulin line — the
   // food and meds still get logged.
   const pendingInsulin=cfg[w].some(([ty],i)=>ty==='insulin'&&!done[i]);
   const skipInsulin=pendingInsulin&&!insulinGuardOk();
-  cfg[w].forEach(([ty,q],i)=>{if(!done[i]){
-    if(ty==='insulin'&&skipInsulin)return;
-    const d=new Date();d.setMinutes(d.getMinutes()+n);
-    entries.push({id:uid(),date:iso(d),time:hm(d),type:ty,qty:q,note:''});n++;
-  }});
-  if(!n){toast(skipInsulin?'Insulin skipped — nothing else left':'Nothing left in that routine');return}
-  save();renderAll();toast(`${n} entr${n>1?'ies':'y'} logged${skipInsulin?' · insulin skipped':''}`);
+  // One timestamp for the whole batch: these were all given at the same
+  // round, not a minute apart, so the log should say so too.
+  const now=new Date(),date=iso(now),time=hm(now);
+  // Built up first, nothing pushed to `entries` yet: cancelling the chicken
+  // prompt must abort the whole batch, not the entries asked before it.
+  const batch=[];
+  for(const [i,[ty,q]] of cfg[w].entries()){if(done[i])continue;
+    if(ty==='insulin'&&skipInsulin)continue;
+    let qty=q;
+    if(ty==='chicken'){qty=chickenQty(q);if(qty===null){toast('Cancelled — nothing logged');return}}
+    batch.push({id:uid(),date,time,type:ty,qty,note:''});
+  }
+  if(!batch.length){toast(skipInsulin?'Insulin skipped — nothing else left':'Nothing left in that routine');return}
+  entries.push(...batch);
+  save();renderAll();
+  toast(`${batch.length} entr${batch.length>1?'ies':'y'} logged${skipInsulin?' · insulin skipped':''}`);
+  // Same reasoning as a single insulin entry: get it on the sheet right away
+  // rather than waiting for the next manual sync.
+  if(cfg.syncUrl&&cfg.syncKey)syncNow();
 }
 
 /* ---------------- today ---------------- */
@@ -1177,6 +1200,9 @@ const LOW_LEFT={insulin:BOTTLE};
 /* Items whose use is one per entry of another type rather than a quantity: a
    syringe is never logged, but one goes with every insulin shot. */
 const PER_SHOT={syringe:'insulin'};
+/* Zuse takes these on a fixed routine, so logging gaps must not read as a
+   changed burn rate. Days-left uses this instead of real usage where set. */
+const FIXED_RATE={samylin:2,pred:.5,insulin:17,syringe:2,para:1,food:4};
 const isoBack=n=>{const d=new Date();d.setDate(d.getDate()-n);return iso(d)};
 function usedSince(type,since){
   const src=PER_SHOT[type];
@@ -1200,7 +1226,7 @@ function stockLeft(type,win=14){
   const st=cfg.stock&&cfg.stock[type];
   if(!st)return null;
   const left=Math.round((+st.qty-usedSince(type,st.since))*100)/100;
-  const rate=rateOver(type,win);
+  const rate=FIXED_RATE[type]!=null?FIXED_RATE[type]:rateOver(type,win);
   return {left, rate, days:rate>0?Math.floor(Math.max(0,left)/rate):null};
 }
 /* Everything the Stock tab shows for one item. Kept separate from stockLeft so
@@ -2009,9 +2035,15 @@ document.getElementById('nav').innerHTML=VIEWS.map(([k,n,i])=>
   `<button class="nb${k==='today'?' on':''}" id="nb-${k}" onclick="nav('${k}')"><span class="ni">${i}</span>${n}</button>`).join('');
 
 /* ---------------- boot ---------------- */
+function renderSyncFab(){
+  const el=document.getElementById('floatSyncTime');
+  if(!el)return;
+  const d=cfg.lastSync?new Date(cfg.lastSync):null;
+  el.textContent=d?`${pad(d.getHours())}:${pad(d.getMinutes())}`:'';
+}
 function renderAll(){
   dayOffset=0;
-  sortEntries();renderRing();renderChecks();renderToday();renderGlance();renderRoutineCards();renderStockWarn();
+  sortEntries();renderRing();renderChecks();renderToday();renderGlance();renderRoutineCards();renderStockWarn();renderSyncFab();
   if(document.getElementById('v-hist').classList.contains('on')){renderFilters();renderHist()}
   if(document.getElementById('v-trend').classList.contains('on'))renderCharts();
   if(document.getElementById('v-stock').classList.contains('on'))renderStockAll();
