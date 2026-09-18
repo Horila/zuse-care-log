@@ -73,10 +73,12 @@ function load(nowMs, rows, opts) {
     };
   }
   const mainTab = writableSheet(values);
-  // opts.stockRows: [ITEM, IN HAND, UNIT, COUNTING FROM] rows, header added here.
+  // opts.stockRows: [ITEM, IN HAND, UNIT, COUNTING FROM, PER DAY?] rows, header
+  // added here. A row with no fifth element is a tab from before PER DAY existed:
+  // five columns, no sixth at all.
   let stockTab = opts.stockRows
     ? writableSheet([['ITEM', 'IN HAND', 'UNIT', 'COUNTING FROM', 'UPDATED']]
-        .concat(opts.stockRows.map(r => r.concat(['x']))))
+        .concat(opts.stockRows.map(r => r.slice(0, 4).concat(['x'], r.slice(4)))))
     : null;
 
   const stubs = {
@@ -563,6 +565,72 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   eq(f.days, 40, 'SHARED FIXTURE days: 20 left at 0.5 a day');
 }
 {
+  /* THE SHARED FIXTURE for the per-day box — test-logic.js asserts the app
+     reaches these same three numbers from the same shape of data. */
+  const rows = [];
+  for (let d = 9; d <= 28; d++) rows.push([cell(2026, 8, d), cell(2026, 8, d, 11, 30), 'Prednisolone', '0.5', '']);
+  const { api } = load(at(2026, 8, 28, 12, 0), rows, {
+    stockRows: [['Prednisolone', 30, 'tablets', '08/08/2026', 1]],
+  });
+  const it = api.readStockTab_()[0];
+  eq(it.perDay, 1, 'the PER DAY column is read');
+  const f = api.stockForecast_(it, api.readRows(), new Date(at(2026, 8, 28, 12, 0)));
+  eq(f.left, 20, 'SHARED FIXTURE perDay left: 30 in, 10 used');
+  eq(f.rate, 1, 'SHARED FIXTURE perDay rate: the box beats the fixed 0.5');
+  eq(f.days, 20, 'SHARED FIXTURE perDay days: 20 left at 1 a day');
+}
+{
+  // A Stock tab written before the PER DAY column existed has five columns.
+  // The daily trigger reads it before the app has pushed again, so a missing
+  // sixth cell must mean "no override", not NaN or a throw.
+  const { api } = load(at(2026, 8, 28, 12, 0), [], {
+    stockRows: [['Prednisolone', 30, 'tablets', '08/08/2026'], ['Insulin', 100, 'units', '08/08/2026', '']],
+  });
+  const items = api.readStockTab_();
+  eq(items[0].perDay, 0, 'a five-column row reads as no per-day figure');
+  eq(items[1].perDay, 0, 'and so does a blank cell');
+  const now = new Date(at(2026, 8, 28, 12, 0));
+  eq(api.stockForecast_(items[0], api.readRows(), now).rate, 0.5, 'so the fixed routine still applies');
+  eq(api.stockForecast_(items[1], api.readRows(), now).rate, 17, 'for every item');
+}
+{
+  // Not-a-number and negative figures are as good as blank: never a zero or
+  // negative burn rate, which would read as "lasts forever".
+  const { api } = load(at(2026, 8, 28, 12, 0), [], {
+    stockRows: [['Prednisolone', 30, 'tablets', '08/08/2026', 'lots'], ['Insulin', 100, 'units', '08/08/2026', -2]],
+  });
+  const now = new Date(at(2026, 8, 28, 12, 0));
+  const items = api.readStockTab_();
+  eq(api.stockForecast_(items[0], api.readRows(), now).rate, 0.5, 'text falls back to the fixed rate');
+  eq(api.stockForecast_(items[1], api.readRows(), now).rate, 17, 'and so does a negative');
+}
+{
+  // The morning check follows the typed rate, for the email and the calendar.
+  // Insulin, 100 left with a per-day of 25: 4 days, not the fixed 17's 5.
+  const { api, mail, events } = load(at(2026, 8, 28, 12, 0), [], {
+    stockRows: [['Insulin', 100, 'units', '15/08/2026', 25]],
+  });
+  eq(api.checkStock(), 1, 'low on the bottle rule');
+  ok(/about 25 units a day/.test(mail[0].body), 'the email quotes the typed rate');
+  ok(/4 days/.test(mail[0].body), 'and the days it implies');
+  eq(events[0].when.getDate(), 1, 'the calendar event lands 4 days out, on 1 Sep');
+}
+{
+  // The vet-reorder email is on days of supply too, so it must move with the box.
+  // 60 syringes lasts 30 days at the fixed 2 a day, so nothing is sent...
+  const { api, mail } = load(at(2026, 8, 28, 12, 0), [], {
+    stockRows: [['Syringes', 60, 'syringes', '28/08/2026']],
+  });
+  eq(api.checkStock(), 0, 'thirty days out is quiet');
+  eq(mail.length, 0, 'no email');
+  // ...but at a typed 8 a day it is 7 days, inside VET_REORDER_DAYS (10).
+  const b = load(at(2026, 8, 28, 12, 0), [], {
+    stockRows: [['Syringes', 60, 'syringes', '28/08/2026', 8]],
+  });
+  eq(b.api.checkStock(), 2, 'the self-reminder and the vet reorder both fire');
+  eq(b.mail[1].to, 'hellopoole@natterjacksvet.com', 'the vet is asked to reorder');
+}
+{
   // A sheet spelling the app does not use must still be counted against stock.
   const rows = [];
   for (let d = 15; d <= 28; d++) rows.push([cell(2026, 8, d), cell(2026, 8, d, 11, 30), 'Chicken Slice \uD83C\uDF57', '100', '']);
@@ -702,6 +770,24 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   // the mercy of the spreadsheet's locale: 05/08 could come back as 8 May.
   ok(formats.some(f => f.c === 4 && f.f === '@'),
      'the COUNTING FROM column is pinned to text before anything is written');
+}
+{
+  // The per-day figure goes up with the stock and comes back on the same row.
+  const { api, post, stock } = load(at(2026, 8, 28, 12, 0), []);
+  post({ action: 'stock', items: [
+    { name: 'Prednisolone', qty: 12, unit: 'tablets', since: '20/08/2026', perDay: 1 },
+    { name: 'Insulin', qty: 300, unit: 'units', since: '15/08/2026', perDay: 0 },
+    { name: 'Samylin', qty: 5, unit: 'tablets', since: '15/08/2026' },
+  ] });
+  const v = stock().getDataRange().getValues();
+  eq(v[0][5], 'PER DAY', 'the tab gets a sixth column');
+  eq(v[1][5], 1, 'a typed figure is stored as a number');
+  eq(v[2][5], '', 'zero is stored blank, meaning automatic');
+  eq(v[3][5], '', 'and so is a row from an app that sends none');
+  eq(v[1].length, 6, 'every row has all six columns');
+  const back = api.readStockTab_();
+  eq(back[0].perDay, 1, 'the figure round-trips');
+  eq(back[1].perDay, 0, 'blank reads back as no override');
 }
 {
   // Re-pushing must replace, never append: stale items would go on alerting.

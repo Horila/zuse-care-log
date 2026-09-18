@@ -51,7 +51,7 @@ const code = [
   grab('shouldAutoEnd'), grab('haversine'),
   grabConst('BOTTLE'), grabConst('LOW_LEFT'), grabConst('PER_SHOT'), grabConst('FIXED_RATE'), grabConst('isoBack'),
   grab('usedSince'), grab('rateOver'), grab('dailyUse'),
-  grab('stockLeft'), grab('stockDetail'), grab('trackedStock'),
+  grab('stockLeft'), grab('stockDetail'), grab('trackedStock'), grab('mergeStockRow'),
   grabConst('isLowStock'), grab('lowStock'), grab('stockLabel'),
   grab('series'), grab('vetSummary'),
   grabConst('syncErr'),
@@ -62,7 +62,7 @@ const code = [
 const api = new Function('T', 'esc',
   'let entries=[],cfg={gap:12,stock:{}},stockWin=14;\n' + code +
   '\nreturn {shouldAutoEnd,haversine,usedSince,rateOver,dailyUse,stockLeft,stockDetail,' +
-  'trackedStock,lowStock,stockLabel,series,vetSummary,syncErr,' +
+  'trackedStock,mergeStockRow,lowStock,stockLabel,series,vetSummary,syncErr,' +
   'setWin:w=>{stockWin=w},setState:(e,c)=>{entries=e;cfg=c}};')(T, esc);
 
 const DAY = 864e5;
@@ -124,6 +124,93 @@ ok(Math.abs(api.haversine(51.5, -0.12, 51.5, -0.12)) < 1e-6, 'zero distance to s
     eq(api.stockLeft(t).rate, fixed[t], `${t}: rate is fixed at ${fixed[t]}/day with nothing logged`);
     eq(api.stockLeft(t).days, Math.floor(100 / fixed[t]), `${t}: days-left uses the fixed rate`);
   });
+}
+{
+  /* THE SHARED FIXTURE for the per-day box — test-sync.js reaches the same
+     three numbers from the same data on the script side. */
+  const e = [];
+  for (let i = 0; i < 20; i++) e.push({ type: 'pred', date: dayAgo(i), time: '11:30', qty: 0.5 });
+  api.setState(e, { gap: 12, stock: { pred: { qty: 30, since: dayAgo(20), perDay: 1 } } });
+  const s = api.stockLeft('pred');
+  eq(s.left, 20, 'SHARED FIXTURE perDay left: 30 in, 10 used');
+  eq(s.rate, 1, 'SHARED FIXTURE perDay rate: the box beats the fixed 0.5');
+  eq(s.days, 20, 'SHARED FIXTURE perDay days: 20 left at 1 a day');
+}
+{
+  // The per-day box beats all three other sources, and anything that is not a
+  // positive number means "automatic" rather than a rate of zero.
+  const e = [];
+  for (let i = 0; i < 14; i++) e.push({ type: 'cerenia', date: dayAgo(i), time: '11:30', qty: 8 });
+  api.setState(e, { gap: 12, stock: { cerenia: { qty: 100, since: dayAgo(0), perDay: 4 } } });
+  eq(api.stockLeft('cerenia').rate, 4, 'beats real usage (8/day) where there is no fixed rate');
+  eq(api.stockLeft('cerenia').days, 23, '92 left at 4 a day');   // 100 minus today's dose of 8
+  for (const bad of [0, '', null, undefined, 'abc', -3]) {
+    api.setState(e, { gap: 12, stock: { cerenia: { qty: 100, since: dayAgo(0), perDay: bad } } });
+    eq(api.stockLeft('cerenia').rate, 8, `perDay ${JSON.stringify(bad)} falls back to real usage`);
+  }
+  api.setState([], { gap: 12, stock: { pred: { qty: 100, since: dayAgo(1), perDay: '3' } } });
+  eq(api.stockLeft('pred').rate, 3, 'a number typed as text still counts');
+  api.setState([], { gap: 12, stock: { pred: { qty: 100, since: dayAgo(1), perDay: 0 } } });
+  eq(api.stockLeft('pred').rate, 0.5, 'and clearing it falls back to the fixed routine');
+}
+{
+  // Syringes are spent per insulin shot, but a typed rate still wins over that.
+  const e = [0, 1, 2].flatMap(i => [{ type: 'insulin', date: dayAgo(i), time: '11:30', qty: 8 },
+                                   { type: 'insulin', date: dayAgo(i), time: '23:30', qty: 8 }]);
+  api.setState(e, { gap: 12, stock: { syringe: { qty: 60, since: dayAgo(30), perDay: 3 } } });
+  eq(api.stockLeft('syringe').rate, 3, 'the typed rate beats the fixed two a day');
+  eq(api.stockLeft('syringe').left, 54, 'but the count still spends one per insulin shot');
+}
+{
+  // The rate feeds the same predicate as everything else, so "running low"
+  // follows the box. pred warns at 15 days: 20 tablets is 40 days at the fixed
+  // 0.5 a day, 6 days at 3 a day.
+  api.setState([], { gap: 12, stock: { pred: { qty: 20, since: dayAgo(0) } } });
+  eq(api.lowStock().length, 0, 'plenty of days at the fixed rate is not low');
+  api.setState([], { gap: 12, stock: { pred: { qty: 20, since: dayAgo(0), perDay: 3 } } });
+  eq(api.lowStock().length, 1, 'the same amount at a typed 3 a day is');
+  eq(api.lowStock()[0].days, 6, 'with the days the box implies');
+}
+{
+  // Merging a Stock-tab row with the local baseline.
+  const m = api.mergeStockRow;
+  const local = { qty: 10, since: '2026-08-10', perDay: 2, vetSkip: '2026-08-10' };
+  let r = m(local, { qty: 99, since: '15/08/2026', perDay: 0 }, '2026-08-15');
+  eq(r.qty, 99, 'a newer baseline replaces the amount');
+  eq(r.since, '2026-08-15', 'and the date');
+  eq(r.perDay, 2, 'but a blank sheet rate keeps the local per-day');
+  eq(r.vetSkip, undefined, 'and drops the old restock cycle marker, as before');
+  r = m(local, { qty: 99, since: '15/08/2026', perDay: 5 }, '2026-08-15');
+  eq(r.perDay, 5, 'a rate on the sheet wins');
+  r = m(local, { qty: 99, since: '01/08/2026', perDay: 0 }, '2026-08-01');
+  eq(r.qty, 10, 'an older sheet baseline leaves the amount alone');
+  eq(r.vetSkip, '2026-08-10', 'and the rest of the local record');
+  r = m(local, { qty: 99, since: '01/08/2026', perDay: 7 }, '2026-08-01');
+  eq(r.qty, 10, 'a rate on an old row still leaves the amount alone');
+  eq(r.perDay, 7, 'yet the rate is adopted');
+  eq(local.perDay, 2, 'the local record is never mutated in place');
+  r = m(undefined, { qty: 4, since: '01/08/2026', perDay: 1.5 }, '2026-08-01');
+  eq(r.qty, 4, 'a first-seen item comes in');
+  eq(r.perDay, 1.5, 'with its rate');
+  r = m(undefined, { qty: 4, since: '01/08/2026' }, '2026-08-01');
+  eq('perDay' in r, false, 'an old script that sends no rate leaves none behind');
+
+  // An edit the sheet has not acknowledged (pdDirty) must beat a stale sheet
+  // figure - a failed push, or a sync already in flight, must not undo it.
+  const dirty = { qty: 10, since: '2026-08-10', perDay: 4, pdDirty: 1 };
+  r = m(dirty, { qty: 10, since: '10/08/2026', perDay: 2 }, '2026-08-10');
+  eq(r.perDay, 4, 'a pending edit beats the stale figure on the sheet');
+  eq(r.pdDirty, 1, 'and stays pending until the push lands');
+  r = m({ qty: 10, since: '2026-08-10', pdDirty: 1 }, { qty: 10, since: '10/08/2026', perDay: 3 }, '2026-08-10');
+  eq('perDay' in r, false, 'a pending clear is not resurrected from the sheet');
+  eq(r.pdDirty, 1, 'and is still pending');
+  r = m(dirty, { qty: 99, since: '15/08/2026', perDay: 2 }, '2026-08-15');
+  eq(r.qty, 99, 'a newer restock elsewhere still lands');
+  eq(r.perDay, 4, 'without costing the pending per-day edit');
+  eq(r.pdDirty, 1, 'or its flag');
+  r = m({ qty: 10, since: '2026-08-10', perDay: 4 }, { qty: 10, since: '10/08/2026', perDay: 2 }, '2026-08-10');
+  eq(r.perDay, 2, 'once acknowledged, the sheet is the source again');
+  eq('pdDirty' in r, false, 'with nothing pending');
 }
 {
   // Deleting an entry must correct the count with no extra bookkeeping.

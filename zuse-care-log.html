@@ -344,7 +344,7 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
       </select>
     </div>
     <div id="stockBox"></div>
-    <p class="note" style="margin-top:10px">Type in what you have in hand &mdash; the app counts down everything logged from that day onwards, so edits, deletions and sheet pulls all correct themselves. Re-enter the amount whenever you restock. The rate is a flat divide by the chosen window, not by &ldquo;days that had an entry&rdquo;, so a twice-weekly tablet doesn&rsquo;t read as a daily one.</p>
+    <p class="note" style="margin-top:10px">Type in what you have in hand &mdash; the app counts down everything logged from that day onwards, so edits, deletions and sheet pulls all correct themselves. Re-enter the amount whenever you restock. The rate is a flat divide by the chosen window, not by &ldquo;days that had an entry&rdquo;, so a twice-weekly tablet doesn&rsquo;t read as a daily one. To use your own figure instead of the estimate, type how many he takes a day in the per-day box; clear it (on each device you use) to go back to the estimate.</p>
   </section>
   <section>
     <div class="shead"><h2>Reminders</h2></div>
@@ -531,7 +531,7 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
   <p class="note">History lists every entry, searchable and editable. Trends charts weight, glucose, insulin, walking and tummy trouble over time, since the log started.</p>
 
   <h3>Stock</h3>
-  <p class="note">Track how much of an item you have in hand and since when; the app works out the daily-use rate from your own logged entries and predicts a run-out date. Insulin and Syringes are linked — a syringe is counted automatically for every insulin shot, never logged by hand.</p>
+  <p class="note">Track how much of an item you have in hand and since when; the app works out the daily-use rate from your own logged entries (or from the per-day figure you type in the item&rsquo;s box) and predicts a run-out date. Insulin and Syringes are linked — a syringe is counted automatically for every insulin shot, never logged by hand.</p>
 
   <h3 style="margin-top:18px;color:var(--alert)">Automatic alerts</h3>
   <p class="note">These five all run from the Google Sheet script, on Google's own clock — not from the phone — because a phone stops running code the moment the screen locks. They only work once Google Sheet sync is set up below <i>and</i> the one-time Apps Script setup (further down) has been done.</p>
@@ -1226,7 +1226,8 @@ function stockLeft(type,win=14){
   const st=cfg.stock&&cfg.stock[type];
   if(!st)return null;
   const left=Math.round((+st.qty-usedSince(type,st.since))*100)/100;
-  const rate=FIXED_RATE[type]!=null?FIXED_RATE[type]:rateOver(type,win);
+  // The per-day box on the Stock card wins, then the fixed routine, then real use.
+  const rate=+st.perDay>0?+st.perDay:FIXED_RATE[type]!=null?FIXED_RATE[type]:rateOver(type,win);
   return {left, rate, days:rate>0?Math.floor(Math.max(0,left)/rate):null};
 }
 /* Everything the Stock tab shows for one item. Kept separate from stockLeft so
@@ -1242,6 +1243,21 @@ function stockDetail(type){
 }
 function trackedStock(){
   return Object.keys(cfg.stock||{}).filter(t=>T[t]);
+}
+/* One Stock-tab row against the local baseline: the newer `since` wins the
+   amount, a per-day figure on the sheet wins the rate, blank keeps ours. The
+   exception is an edit the sheet has not acknowledged yet (`pdDirty`, cleared by
+   pushStock): that beats whatever stale figure the sheet still holds. A blank
+   sheet cell cannot be told from an older app that never sent one, so a clear
+   does not spread: another device still holding a figure pushes it back. */
+function mergeStockRow(local,sr,since){
+  const rec=!local||since>local.since?{qty:sr.qty,since}:Object.assign({},local);
+  if(local&&local.pdDirty){
+    rec.pdDirty=1;
+    if(local.perDay>0)rec.perDay=local.perDay;else delete rec.perDay;
+  }else if(+sr.perDay>0)rec.perDay=+sr.perDay;
+  else if(local&&local.perDay>0)rec.perDay=local.perDay;
+  return rec;
 }
 /* Two rules, one predicate, so the warning card, the countdown card and the
    list all agree: a fixed amount left where one is set, days of supply otherwise. */
@@ -1329,21 +1345,36 @@ function renderStock(){
     /* One number, however many boxes. Insulin gets a second one in bottles
        because that is how it is bought; either can be typed and the stored
        amount is the same. The unit caption is what keeps them apart. */
-    const numBox=(val,step,cap,set)=>{
+    const numBox=(val,step,cap,set,o={})=>{
       const w=document.createElement('label');
       w.style.cssText='display:flex;align-items:center;gap:5px;font-size:10.5px;color:var(--dim)';
       const i=document.createElement('input');
       i.type='number';i.step=step;i.inputMode='decimal';i.value=val;
-      i.style.width='72px';i.title='Set to the amount you now have';
-      i.setAttribute('aria-label',`${T[t].n} in hand, ${cap}`);
+      if(o.ph!=null)i.placeholder=o.ph;
+      i.style.width='72px';i.title=o.title||'Set to the amount you now have';
+      i.setAttribute('aria-label',o.aria||`${T[t].n} in hand, ${cap}`);
       // 2.34 bottles times 400 is 935.9999999999999 in binary; round the way a
       // number of units is actually counted before it goes in the box.
-      i.onchange=()=>{cfg.stock[t]={qty:Math.round(set(+i.value)*100)/100,since:iso(new Date())};saveCfg();renderStockAll()};
+      // A restock keeps perDay: how much he takes a day is a habit, not a baseline.
+      i.onchange=o.apply?()=>o.apply(+i.value):()=>{const s=cfg.stock[t];cfg.stock[t]={qty:Math.round(set(+i.value)*100)/100,since:iso(new Date()),perDay:s.perDay,pdDirty:s.pdDirty};saveCfg();renderStockAll()};
       w.appendChild(i);w.appendChild(document.createTextNode(cap));
       return w;
     };
     side.appendChild(numBox(cfg.stock[t].qty,'0.5',T[t].u||'in hand',v=>v));
     if(t==='insulin')side.appendChild(numBox(Math.round(cfg.stock[t].qty/BOTTLE*100)/100,'0.25','bottles',v=>v*BOTTLE));
+    /* The rate the countdown divides by. Empty means automatic (fixed routine
+       or real use, shown as the placeholder); a number overrides both. It goes
+       out through a full sync, not a bare push: a push alone would write this
+       device's baseline over a newer restock made elsewhere. `pdDirty` keeps the
+       edit from being reverted by the sheet until the push lands. */
+    side.appendChild(numBox(cfg.stock[t].perDay||'','0.25',T[t].u?T[t].u+'/day':'per day',null,{
+      ph:rate, title:'Used per day. Leave empty to use the automatic rate.', aria:`${T[t].n} used per day`,
+      apply:n=>{
+        if(n>0)cfg.stock[t].perDay=n;else delete cfg.stock[t].perDay;
+        cfg.stock[t].pdDirty=1;saveCfg();renderStockAll();
+        if(cfg.syncUrl&&cfg.syncKey)syncNow();
+      }
+    }));
     if(VET_REORDER.includes(t)){
       const skipped=cfg.stock[t].vetSkip===cfg.stock[t].since;
       const vb=document.createElement('button');
@@ -1401,14 +1432,22 @@ const syncErr=e=>e!=='unknown action'?e:'the Apps Script deployment is older tha
 async function pushStock(silent){
   const url=cfg.syncUrl,key=cfg.syncKey;
   if(!url||!key){if(!silent)toast('Set the sync URL and secret in Setup first');return}
-  const items=trackedStock().map(t=>({
-    name:T[t].n, qty:+cfg.stock[t].qty||0, unit:T[t].u||'', since:dmyFromIso(cfg.stock[t].since)}));
+  const keys=trackedStock();
+  const items=keys.map(t=>({
+    name:T[t].n, qty:+cfg.stock[t].qty||0, unit:T[t].u||'', since:dmyFromIso(cfg.stock[t].since), perDay:+cfg.stock[t].perDay||0}));
   const btn=document.getElementById('stockPushBtn');
   if(!silent&&btn){btn.disabled=true;btn.textContent='Sending\u2026'}
   try{
     const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
       body:JSON.stringify({secret:key,action:'stock',items})});
     const d=await res.json();
+    if(!d.error){
+      // Acknowledged: the sheet now holds the figure that was sent. Only clear the
+      // flag where it is still the figure on screen, or a later edit would lose it.
+      let cleared=0;
+      keys.forEach((t,i)=>{const s=cfg.stock[t];if(s&&s.pdDirty&&(+s.perDay||0)===items[i].perDay){delete s.pdDirty;cleared=1}});
+      if(cleared)saveCfg();
+    }
     if(!silent)toast(d.error?'Stock push failed: '+syncErr(d.error):`Stock sent \u2014 ${d.saved} item${d.saved===1?'':'s'}`);
   }catch(err){
     if(!silent)toast('Stock push failed: '+(err&&err.message?err.message:err));
@@ -1808,12 +1847,8 @@ async function syncNow(){
     (listData.stock||[]).forEach(sr=>{
       const t=Object.keys(T).find(k=>T[k].n===sr.name);
       if(!t)return;
-      const since=isoFromDmy(sr.since);
-      const local=cfg.stock&&cfg.stock[t];
-      if(!local||since>local.since){
-        cfg.stock=cfg.stock||{};
-        cfg.stock[t]={qty:sr.qty,since};
-      }
+      cfg.stock=cfg.stock||{};
+      cfg.stock[t]=mergeStockRow(cfg.stock[t],sr,isoFromDmy(sr.since));
     });
 
     // sheet row -> {dateIso,time24,typeKey,qty,notes} ; skip unparseable

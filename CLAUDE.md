@@ -12,12 +12,18 @@ and the tests use only Node's stdlib `assert`.
 ## Commands
 
 ```
-node test-logic.js    # pure logic lifted out of zuse-care-log.html (86 checks)
-node test-sync.js     # the Apps Script backend under stubbed Google services (210 checks)
+node test-logic.js    # pure logic lifted out of zuse-care-log.html (142 checks)
+node test-sync.js     # the Apps Script backend under stubbed Google services (236 checks)
 ```
 
 There is no single-test flag. Both files are flat scripts — comment out blocks
 or add a temporary `process.exit()` to narrow a run.
+
+The working tree is LF but `core.autocrlf=true`, so anything that makes git
+rewrite files (`git stash` + `pop`, a checkout) leaves them CRLF and
+`test-sync.js` dies at its "paste file keeps its instruction header" check, which
+looks for `' */\n\n'`. Don't stash here; if it happens, `sed -i 's/\r$//'` the
+modified files back to LF.
 
 ## Editing the file is not shipping it
 
@@ -119,8 +125,12 @@ needed, since it only changes what the app displays, not what gets emailed.
 - Editing the script requires Deploy → Manage deployments → pencil → Version:
   **New version**. "New deployment" makes a second web app on a new URL. Skipping
   the redeploy makes new actions answer `unknown action`; `syncErr` in the app
-  rewrites that one error into these instructions. A change that adds no `doPost`
-  action needs only a save — the daily trigger runs saved head code.
+  rewrites that one error into these instructions. Only code the daily trigger
+  alone runs (`checkStock`, `stockForecast_`, the email and calendar helpers)
+  needs just a save — the trigger runs saved head code. Anything on a `doPost` or
+  `doGet` path, including `writeStockTab_` and `readStockTab_`, runs from the
+  *deployed* version and needs the redeploy even when no action is added. Skip it
+  and nothing errors: the old code keeps writing the old columns, silently.
 - `doPost` actions: `append`, `report`, `stock`, `skipVetOrder`. `doGet`: `list`.
 
 ## Sync protocol
@@ -168,6 +178,27 @@ Two wrinkles worth knowing before touching it:
   never touches the other. `LOW_DAYS_OVERRIDE` just widens when the app's own
   "running out" UI calls these two items low (15 days), so the warning shows
   up before the vet email fires, not after.
+- **The per-day box.** Each Stock card has a "units/day" box that stores
+  `cfg.stock[t].perDay`. It beats `FIXED_RATE` and real usage in `stockLeft`
+  (order: box, fixed routine, logged use); empty or non-positive means automatic.
+  It is mirrored to the Stock tab's sixth column, `PER DAY` (blank = automatic),
+  and `stockForecast_` reads it first, so the morning email, calendar event and
+  vet reorder agree with the app. `readStockTab_` reads a missing or blank cell as
+  0, because the daily trigger may meet a five-column tab from before the column
+  existed. Shipping it needs the Apps Script redeploy (see above), or `PER DAY`
+  never reaches the sheet and the app and the emails silently disagree.
+  - Sync: an edit sets `pdDirty` and runs `syncNow()`, not a bare `pushStock` —
+    a bare push would write this device's baseline over a newer restock made
+    elsewhere, and the daily check could then email the vet on stale data.
+    `mergeStockRow` lets a dirty local figure beat the sheet, so a failed push or
+    a sync already in flight cannot revert it; `pushStock` clears the flag once
+    the sheet acknowledges the same figure. Otherwise a non-blank sheet value
+    wins and a blank one keeps the local value.
+  - Ceiling: a blank cell cannot be told from an older app that never sent the
+    column, so a *clear* does not spread. Another device still holding a figure
+    pushes it back and the clear is undone; clear it on each device.
+  - A restock keeps both `perDay` and `pdDirty` (the in-hand box's `onchange`
+    copies them across).
 
 Rates divide by a fixed window, never by "days that happen to have an entry" —
 the latter reads a twice-weekly tablet as a daily one and halves the estimate.
@@ -181,7 +212,7 @@ recordings from the removed vet-audio feature stay readable.
 
 ## Layout of zuse-care-log.html
 
-One ~2040-line file: styles 13–208, markup 210–553, script 554–2035.
+One ~2120-line file: styles 13–208, markup 210–554, script 555–2121.
 
 ## Other files at the root
 

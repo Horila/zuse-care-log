@@ -640,7 +640,8 @@ const STOCK_LOW_LEFT = { 'Insulin': 400 };
 const STOCK_PER_ROW = { 'Syringes': 'Insulin' };
 
 /* Zuse takes these on a fixed routine, so a logging gap must not read as a
- * changed burn rate. Keyed by ITEM name; keep in step with FIXED_RATE in the app. */
+ * changed burn rate. Keyed by ITEM name; keep in step with FIXED_RATE in the app.
+ * A PER DAY figure on the Stock tab (typed in the app) overrides this. */
 const STOCK_FIXED_RATE = { 'Samylin': 2, 'Prednisolone': 0.5, 'Insulin': 17, 'Syringes': 2, 'Paracetamol': 1, 'Canned Food': 4 };
 
 /* A second, separate alert: Prednisolone and Syringes also go straight to the
@@ -738,7 +739,10 @@ function readStockTab_() {
       name: name,
       qty: numFrom_(v[i][1]),
       unit: String(v[i][2] === undefined ? '' : v[i][2]).trim(),
-      since: formatDate_(v[i][3])
+      since: formatDate_(v[i][3]),
+      // Column 6, written by newer app versions. A tab from before that has no
+      // such column, and blank or missing both read as 0, meaning "no override".
+      perDay: numFrom_(v[i][5])
     });
   }
   return out;
@@ -769,7 +773,9 @@ function stockForecast_(it, rows, now) {
 
   // Fixed divisor, not "days that happen to have an entry": dividing by the
   // latter reads a twice-weekly tablet as a daily one and halves the estimate.
-  const rate = STOCK_FIXED_RATE[it.name] !== undefined ? STOCK_FIXED_RATE[it.name] : recent / STOCK_WINDOW;
+  // The per-day figure typed on the app's Stock card wins, then the fixed routine.
+  const rate = it.perDay > 0 ? it.perDay
+    : STOCK_FIXED_RATE[it.name] !== undefined ? STOCK_FIXED_RATE[it.name] : recent / STOCK_WINDOW;
   const left = round_(it.qty - used);
   const days = rate > 0 ? Math.floor(Math.max(0, left) / rate) : null;
   return {
@@ -795,8 +801,9 @@ function emailLowStock_(low) {
   });
   MailApp.sendEmail(ALERT_EMAIL, 'Zuse: running low on ' + names,
     'Time to reorder.\n\n' + lines.join('\n') + '\n\n' +
-    'Worked out from the last ' + STOCK_WINDOW + ' days of entries on the sheet, ' +
-    'counting down from the amount last entered in the app.\n' +
+    'The daily rate is the per-day figure typed in the app where there is one, the ' +
+    'fixed routine for the regular medicines, and otherwise the last ' + STOCK_WINDOW +
+    ' days of entries on the sheet. Counting down from the amount last entered in the app.\n' +
     'A calendar reminder has been added for each one with a predicted day.\n');
 }
 
@@ -834,7 +841,7 @@ function addReorderReminder_(x) {
     const u = x.unit ? ' ' + x.unit : '';
     const ev = cal.createEvent(title, when, new Date(when.getTime() + 15 * 6e4), {
       description: x.left + u + ' left as of ' + fmtDay_(new Date()) + ', going at about ' +
-                   x.rate + u + ' a day over the last ' + STOCK_WINDOW + ' days.'
+                   x.rate + u + ' a day.'
     });
     ev.addPopupReminder(0);
   } catch (err) {
@@ -861,11 +868,12 @@ function writeStockTab_(items) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getSheetByName(STOCK_SHEET) || ss.insertSheet(STOCK_SHEET);
   sh.clear();
-  const head = ['ITEM', 'IN HAND', 'UNIT', 'COUNTING FROM', 'UPDATED'];
+  const head = ['ITEM', 'IN HAND', 'UNIT', 'COUNTING FROM', 'UPDATED', 'PER DAY'];
   const stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
   const body = items.map(function (it) {
+    // PER DAY stays blank unless the app has one, so an empty cell reads as "automatic".
     return [String(it.name || ''), Number(it.qty) || 0, String(it.unit || ''),
-            String(it.since || ''), stamp];
+            String(it.since || ''), stamp, Number(it.perDay) > 0 ? Number(it.perDay) : ''];
   });
   sh.getRange(1, 1, 1, head.length).setValues([head]);
   // COUNTING FROM is dd/MM/yyyy. This tab is created from scratch, so unlike
