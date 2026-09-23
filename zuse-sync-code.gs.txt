@@ -27,7 +27,7 @@ function doGet(e) {
   }
   const action = e.parameter.action || 'list';
   if (action === 'list') {
-    return jsonOut({ rows: readRows(), stock: readStockTab_() });
+    return jsonOut({ rows: readRows().filter(function (r) { return isWithinDays_(r.date, 30); }), stock: readStockTab_() });
   }
   return jsonOut({ error: 'unknown action' });
 }
@@ -126,6 +126,17 @@ function appendRows(rows) {
     sh.getRange(sh.getLastRow() + 1, 1, out.length, 6).setValues(out);
   }
   return out.length;
+}
+
+/** dd/MM/yyyy row date within the last `days` days? Unparseable dates are
+ *  kept rather than silently dropped. */
+function isWithinDays_(dmy, days) {
+  const dm = String(dmy).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!dm) return true;
+  const d = new Date(Number(dm[3]), Number(dm[2]) - 1, Number(dm[1]));
+  const cutoff = new Date(Date.now() - days * 864e5);
+  cutoff.setHours(0, 0, 0, 0);
+  return d >= cutoff;
 }
 
 function formatDate_(v) {

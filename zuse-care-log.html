@@ -1888,8 +1888,11 @@ async function syncNow(){
       pulled++;
     });
 
-    // push: local entries missing from sheet
-    const toPush=entries.filter(e=>!sheetKeys.has(keyOf(e)));
+    // push: local entries missing from sheet, within the same 30-day window the
+    // server reads — older entries aren't in sheetKeys either way, so pushing
+    // them would just duplicate rows the sheet already has outside that window
+    const cutoffIso=new Date(Date.now()-30*864e5).toISOString().slice(0,10);
+    const toPush=entries.filter(e=>e.date>=cutoffIso&&!sheetKeys.has(keyOf(e)));
     let pushed=0;
     if(toPush.length){
       // audioId intentionally not included — stays local

@@ -128,6 +128,17 @@ function appendRows(rows) {
   return out.length;
 }
 
+/** dd/MM/yyyy row date within the last `days` days? Unparseable dates are
+ *  kept rather than silently dropped. */
+function isWithinDays_(dmy, days) {
+  const dm = String(dmy).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!dm) return true;
+  const d = new Date(Number(dm[3]), Number(dm[2]) - 1, Number(dm[1]));
+  const cutoff = new Date(Date.now() - days * 864e5);
+  cutoff.setHours(0, 0, 0, 0);
+  return d >= cutoff;
+}
+
 function formatDate_(v) {
   if (Object.prototype.toString.call(v) === '[object Date]') {
     return Utilities.formatDate(v, Session.getScriptTimeZone(), 'dd/MM/yyyy');
