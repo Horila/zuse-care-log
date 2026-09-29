@@ -43,8 +43,14 @@ function doPost(e) {
     return jsonOut({ error: 'unauthorized' });
   }
   if (body.action === 'append') {
-    const added = appendRows(body.rows || []);
-    return jsonOut({ added: added });
+    // Two syncs at once would both take getLastRow()+1 and overwrite each other.
+    const lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    try {
+      return jsonOut({ added: appendRows(body.rows || []) });
+    } finally {
+      lock.releaseLock();
+    }
   }
   // The app's "email the report now" button.
   if (body.action === 'report') {
@@ -57,8 +63,13 @@ function doPost(e) {
   // sheet. No CalendarApp call may ever appear on a doPost path: an ungranted
   // calendar scope would then break syncing, which is used every day.
   if (body.action === 'stock') {
-    const n = writeStockTab_(body.items || []);
-    return jsonOut({ ok: true, saved: n });
+    const lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    try {
+      return jsonOut({ ok: true, saved: writeStockTab_(body.items || []) });
+    } finally {
+      lock.releaseLock();
+    }
   }
   // The "cancel vet email" button: preemptively sets the exact dedupe key
   // checkStock() checks, so it works whether clicked before or after the
@@ -78,13 +89,34 @@ function getSheet_() {
 }
 
 /** Reads every data row (skipping the 2 header rows), carrying the date
- *  forward for rows where the DATE cell is blank (same-day continuation). */
-function readRows() {
+ *  forward for rows where the DATE cell is blank (same-day continuation).
+ *  With `days`, reads only the rows from the last `days` days: the sync runs
+ *  on every insulin log and the sheet only grows, so reading all of it is what
+ *  makes it slow. Finds the cut by walking the date column up from the bottom,
+ *  so it assumes rows are in date order (append keeps them so).
+ *  ponytail: a hand-sorted sheet could drop old-dated rows below the cut. */
+function readRows(days) {
   const sh = getSheet_();
-  const values = sh.getDataRange().getValues();
+  let values, from = 2;
+  if (days) {
+    const last = sh.getLastRow();
+    if (last < 3) return [];
+    const dates = sh.getRange(3, 2, last - 2, 1).getValues();
+    let start = -1;
+    for (let i = dates.length - 1; i >= 0; i--) {
+      if (!dates[i][0]) continue;
+      if (!isWithinDays_(formatDate_(dates[i][0]), days)) break;
+      start = i;
+    }
+    if (start < 0) return [];
+    from = 0;
+    values = sh.getRange(3 + start, 1, last - 2 - start, 6).getValues();
+  } else {
+    values = sh.getDataRange().getValues();
+  }
   const out = [];
   let curDate = '';
-  for (let i = 2; i < values.length; i++) {
+  for (let i = from; i < values.length; i++) {
     const row = values[i];
     const dateCell = row[1];
     const timeCell = row[2];

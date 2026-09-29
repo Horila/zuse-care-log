@@ -47,6 +47,7 @@ function load(nowMs, rows, opts) {
   const mail = [];
   const fetches = [];
   const slept = [];
+  const locks = [];
   const props = Object.assign({}, opts.props || {});
   const values = [['header'], ['header']].concat(
     rows.map(r => ['', r[0], r[1], r[2], r[3] === undefined ? '' : r[3], r[4] || ''])
@@ -62,8 +63,9 @@ function load(nowMs, rows, opts) {
       getDataRange: () => ({ getValues: () => v }),
       clear: () => { v = []; },
       getLastRow: () => v.length,
-      getRange: (r, c) => ({
+      getRange: (r, c, nr, nc) => ({
         getValue: () => (v[r - 1] || [])[c - 1],
+        getValues: () => v.slice(r - 1, r - 1 + nr).map(row => { row = row.slice(c - 1, c - 1 + nc); while (row.length < nc) row.push(''); return row; }),
         setNumberFormat: f => { formats.push({ r, c, f }); },
         setValues: rowsIn => {
           while (v.length < r - 1 + rowsIn.length) v.push([]);
@@ -91,6 +93,7 @@ function load(nowMs, rows, opts) {
     Utilities: { formatDate, sleep: () => { slept.push(1); } },
     Session: { getScriptTimeZone: () => 'Europe/London' },
     Logger: { log: () => {} },
+    LockService: { getScriptLock: () => ({ waitLock: () => { locks.push('wait'); }, releaseLock: () => { locks.push('release'); } }) },
     MailApp: { sendEmail: (to, subject, body) => mail.push({ to, subject, body }) },
     PropertiesService: {
       getScriptProperties: () => ({
@@ -151,11 +154,11 @@ function load(nowMs, rows, opts) {
     ;return {readRows, parseRowDate_, slotsToCheck_, checkShotDue, cleanupAlertKeys_,
              numFrom_, bucket_, buildReportStats_, sendMonthlyReport, askGemini_,
              reportPrompt_, fmtDay_, canonType_, incidentKey_,
-             checkStock, readStockTab_, stockForecast_, writeStockTab_, doPost};`;
+             checkStock, readStockTab_, stockForecast_, writeStockTab_, doPost, doGet};`;
   const api = new Function(...names, body)(...names.map(n => stubs[n]));
   const post = o => JSON.parse(api.doPost({ postData: { contents: JSON.stringify(
     Object.assign({ secret: 'CHANGE_ME_TO_YOUR_OWN_SECRET' }, o)) } }).__out);
-  return { api, mail, props, fetches, slept, events, formats, post, stock: () => stockTab };
+  return { api, mail, props, fetches, slept, events, formats, locks, post, stock: () => stockTab };
 }
 
 const at = (y, m, d, h, mi) => new Date(y, m - 1, d, h, mi, 0).getTime();
@@ -971,6 +974,33 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
      + `zuse-sync-code.gs.txt and ${REPLACE_NAME} first differ at line `
      + `${firstDiff + 1} of the doPost tail: `
      + `${JSON.stringify(linesA[firstDiff])} vs ${JSON.stringify(linesB[firstDiff])}`);
+}
+
+/* ================= windowed read: only the last N days leave the sheet ================= */
+{
+  const t = load(at(2026, 8, 28, 12, 0), [
+    [cell(2026, 6, 1), cell(2026, 6, 1, 8, 0), 'Insulin', '8 Units', ''],
+    ['', cell(2026, 6, 1, 9, 0), 'Food', '1', 'old continuation'],
+    [cell(2026, 8, 10), cell(2026, 8, 10, 8, 0), 'Insulin', '8 Units', ''],
+    ['', cell(2026, 8, 10, 9, 0), 'Food', '1', 'kept continuation'],
+    [cell(2026, 8, 28), cell(2026, 8, 28, 8, 0), 'Insulin', '8 Units', ''],
+  ]);
+  const rows = t.api.readRows(30);
+  eq(rows.length, 3, 'windowed read drops the old date and its blank-date continuation');
+  eq(rows[1].date, '10/08/2026', 'a continuation row inside the window keeps its carried date');
+  eq(t.api.readRows().length, 5, 'no argument still reads everything, for the report and stock forecast');
+  eq(load(at(2026, 8, 28, 12, 0), []).api.readRows(30).length, 0, 'empty sheet is fine');
+  const g = JSON.parse(t.api.doGet({ parameter: { secret: 'CHANGE_ME_TO_YOUR_OWN_SECRET' } }).__out);
+  eq(g.rows.length, 3, 'doGet list serves the 30-day window');
+}
+
+/* ================= writes are serialised by the script lock ================= */
+{
+  const t = load(at(2026, 8, 28, 12, 0), []);
+  t.post({ action: 'append', rows: [{ date: '28/08/2026', time: '8:00 am', type: 'Insulin', qty: '8 Units', notes: '' }] });
+  eq(t.locks.join(), 'wait,release', 'append takes and releases the lock');
+  t.post({ action: 'stock', items: [] });
+  eq(t.locks.join(), 'wait,release,wait,release', 'stock takes and releases the lock');
 }
 
 console.log(`\n  ${passed} checks passed\n`);
