@@ -1424,6 +1424,17 @@ function renderStockAll(){renderStockNext();renderStock();renderStockWarn()}
 /* The script only knows the actions its deployed version was written with, so a
    deployment older than the app answers "unknown action" for anything added
    since. That word means nothing to whoever pressed the button; say the fix. */
+/* Apps Script can stall for minutes or answer with an HTML error page. Bound the
+   wait, and say what came back instead of "Unexpected token <". */
+async function fetchJson(u,o,ms=40000){
+  const ac=new AbortController(),t=setTimeout(()=>ac.abort(),ms);
+  try{
+    const r=await fetch(u,{...o,signal:ac.signal});
+    const x=await r.text();
+    try{return JSON.parse(x)}catch(e){throw new Error(`web app didn't return JSON (HTTP ${r.status}) - Google may be busy, will retry`)}
+  }catch(e){throw e.name==='AbortError'?new Error('Google took too long, will retry'):e}
+  finally{clearTimeout(t)}
+}
 const syncErr=e=>e!=='unknown action'?e:'the Apps Script deployment is older than this app. In the script: Deploy → Manage deployments → the pencil → Version: New version → Deploy. The URL does not change.';
 
 /* Stock lives in the app, but the reminder has to run on Google's clock, so the
@@ -1438,9 +1449,8 @@ async function pushStock(silent){
   const btn=document.getElementById('stockPushBtn');
   if(!silent&&btn){btn.disabled=true;btn.textContent='Sending\u2026'}
   try{
-    const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+    const d=await fetchJson(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
       body:JSON.stringify({secret:key,action:'stock',items})});
-    const d=await res.json();
     if(!d.error){
       // Acknowledged: the sheet now holds the figure that was sent. Only clear the
       // flag where it is still the figure on screen, or a later edit would lose it.
@@ -1823,20 +1833,23 @@ function formatQtySheet(type,qty){
   if(u==='min')return`${qty} min`;
   return String(qty);
 }
+/* Callers include app-open, every insulin log and the service worker, none of
+   which see the disabled button; overlapping runs push the same rows twice.
+   A request made mid-sync runs once more after, so a fresh entry still goes. */
+let syncBusy=false,syncAgain=false;
 async function syncNow(){
+  if(syncBusy){syncAgain=true;return}
+  syncBusy=true;
+  try{await syncOnce()}finally{syncBusy=false;if(syncAgain){syncAgain=false;syncNow()}}
+}
+async function syncOnce(){
   const url=cfg.syncUrl, key=cfg.syncKey;
   if(!url||!key){toast('Add your Web App URL and secret first');return}
   const btn=document.getElementById('syncBtn'), fab=document.getElementById('floatSync');
   btn.textContent='Syncing…';btn.disabled=true;
   fab.classList.add('busy');fab.disabled=true;
   try{
-    const listRes=await fetch(`${url}?action=list&secret=${encodeURIComponent(key)}`);
-    const listText=await listRes.text();
-    let listData;
-    try{listData=JSON.parse(listText)}catch(e){
-      toast(`Sync failed: web app didn't return JSON (HTTP ${listRes.status}). Check the deployment URL.`);
-      return;
-    }
+    const listData=await fetchJson(`${url}?action=list&secret=${encodeURIComponent(key)}`);
     if(listData.error){toast('Sync failed: '+syncErr(listData.error));return}
     const sheetRows=listData.rows||[];
 
@@ -1900,9 +1913,8 @@ async function syncNow(){
         date:dmyFromIso(e.date), time:fmt12(e.time), type:e.srcType||(T[e.type]?T[e.type].n:e.type),
         qty:formatQtySheet(e.type,e.qty), notes:e.note||''
       }));
-      const postRes=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      const postData=await fetchJson(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
         body:JSON.stringify({secret:key,action:'append',rows})});
-      const postData=await postRes.json();
       if(postData.error){toast('Push failed: '+syncErr(postData.error))}
       else pushed=postData.added||rows.length;
     }
