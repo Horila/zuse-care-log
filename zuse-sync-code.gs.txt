@@ -27,7 +27,9 @@ function doGet(e) {
   }
   const action = e.parameter.action || 'list';
   if (action === 'list') {
-    return jsonOut({ rows: readRows(30), stock: readStockTab_() });
+    // days=0 reads the whole sheet: the app asks for that when its log is empty.
+    const days = e.parameter.days === '0' ? 0 : 30;
+    return jsonOut({ rows: readRows(days), stock: readStockTab_(), days: days });
   }
   return jsonOut({ error: 'unknown action' });
 }

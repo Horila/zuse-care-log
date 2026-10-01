@@ -1431,7 +1431,7 @@ async function fetchJson(u,o,ms=40000){
   try{
     const r=await fetch(u,{...o,signal:ac.signal});
     const x=await r.text();
-    try{return JSON.parse(x)}catch(e){throw new Error(`web app didn't return JSON (HTTP ${r.status}) - Google may be busy, will retry`)}
+    try{return JSON.parse(x)}catch(e){throw new Error(`web app didn't return JSON (HTTP ${r.status}): ${x.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,160)}`)}
   }catch(e){throw e.name==='AbortError'?new Error('Google took too long, will retry'):e}
   finally{clearTimeout(t)}
 }
@@ -1849,8 +1849,12 @@ async function syncOnce(){
   btn.textContent='Syncing…';btn.disabled=true;
   fab.classList.add('busy');fab.disabled=true;
   try{
-    const listData=await fetchJson(`${url}?action=list&secret=${encodeURIComponent(key)}`);
+    // An empty log (after "Delete everything") pulls the whole sheet, not just
+    // the 30-day window, and gets Apps Script's full 6 minutes to do it.
+    const full=!entries.length;
+    const listData=await fetchJson(`${url}?action=list&secret=${encodeURIComponent(key)}${full?'&days=0':''}`,{},full?360000:120000);
     if(listData.error){toast('Sync failed: '+syncErr(listData.error));return}
+    if(full&&listData.days!==0){toast('Only the last 30 days came back: the script needs the new doGet and a redeploy');return}
     const sheetRows=listData.rows||[];
 
     // pull stock baselines too: the Stock tab is a mirror of whichever device
@@ -1898,6 +1902,7 @@ async function syncOnce(){
         const noteText=`${sp.rawType}${sp.notes?': '+sp.notes:''}${sp.qty?' ('+sp.qty+')':''}`;
         entries.push({id:uid(),date:sp.dateIso,time:sp.time24,type:'note',qty:'',note:noteText,srcType:sp.rawType});
       }
+      localKeys.add(sp.key); // a row duplicated on the sheet comes in once
       pulled++;
     });
 

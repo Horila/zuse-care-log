@@ -992,6 +992,7 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   eq(load(at(2026, 8, 28, 12, 0), []).api.readRows(30).length, 0, 'empty sheet is fine');
   const g = JSON.parse(t.api.doGet({ parameter: { secret: 'CHANGE_ME_TO_YOUR_OWN_SECRET' } }).__out);
   eq(g.rows.length, 3, 'doGet list serves the 30-day window');
+  eq(JSON.parse(t.api.doGet({ parameter: { secret: 'CHANGE_ME_TO_YOUR_OWN_SECRET', days: '0' } }).__out).rows.length, 5, 'days=0 serves the whole sheet');
 }
 
 /* ================= writes are serialised by the script lock ================= */
