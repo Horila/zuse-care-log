@@ -69,7 +69,8 @@ function load(nowMs, rows, opts) {
         setNumberFormat: f => { formats.push({ r, c, f }); },
         setValues: rowsIn => {
           while (v.length < r - 1 + rowsIn.length) v.push([]);
-          rowsIn.forEach((row, i) => { v[r - 1 + i] = row.slice(); });
+          // Merge at column c, so a partial write (cols 4-6 of a row) leaves the rest alone.
+          rowsIn.forEach((row, i) => { const t = (v[r - 1 + i] || []).slice(); row.forEach((x, j) => { t[c - 1 + j] = x; }); v[r - 1 + i] = t; });
         },
       }),
     };
@@ -158,7 +159,7 @@ function load(nowMs, rows, opts) {
   const api = new Function(...names, body)(...names.map(n => stubs[n]));
   const post = o => JSON.parse(api.doPost({ postData: { contents: JSON.stringify(
     Object.assign({ secret: 'CHANGE_ME_TO_YOUR_OWN_SECRET' }, o)) } }).__out);
-  return { api, mail, props, fetches, slept, events, formats, locks, post, stock: () => stockTab };
+  return { api, mail, props, fetches, slept, events, formats, locks, post, stock: () => stockTab, sheet: () => mainTab };
 }
 
 const at = (y, m, d, h, mi) => new Date(y, m - 1, d, h, mi, 0).getTime();
@@ -226,7 +227,7 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   api.checkShotDue();
   eq(mail.length, 1, 'nothing logged, morning shot overdue: one email');
   ok(/morning insulin not logged/.test(mail[0].subject), 'subject names the slot');
-  ok(/No insulin has ever been logged/.test(mail[0].body), 'says there is no prior shot at all');
+  ok(/No insulin logged in the last two days/.test(mail[0].body), 'says there is no recent shot at all');
   eq(props['alerted:2026-08-28:morning'], '1', 'the slot is marked as alerted');
   api.checkShotDue();
   eq(mail.length, 1, 'a second run 15 min later does not email again');
@@ -993,6 +994,237 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   const g = JSON.parse(t.api.doGet({ parameter: { secret: 'CHANGE_ME_TO_YOUR_OWN_SECRET' } }).__out);
   eq(g.rows.length, 3, 'doGet list serves the 30-day window');
   eq(JSON.parse(t.api.doGet({ parameter: { secret: 'CHANGE_ME_TO_YOUR_OWN_SECRET', days: '0' } }).__out).rows.length, 5, 'days=0 serves the whole sheet');
+}
+
+/* ================= readRows: an old-dated block at the bottom hides nothing ================= */
+{
+  // appendRows puts anything the app pushes at the very bottom, so a stale push
+  // leaves old dates BELOW current ones. Walking up must skip them, not stop.
+  const NOW = at(2026, 8, 28, 12, 0);
+  const rows = [
+    [cell(2026, 8, 10), cell(2026, 8, 10, 8, 0), 'Insulin', '8 Units', ''],
+    ['', cell(2026, 8, 10, 9, 0), 'Canned Food', '2', ''],
+    [cell(2026, 8, 28), cell(2026, 8, 28, 8, 0), 'Insulin', '8 Units', ''],
+    [cell(2026, 6, 1), cell(2026, 6, 1, 8, 0), 'Insulin', '8 Units', ''],
+    ['', cell(2026, 6, 1, 9, 0), 'Canned Food', '2', 'old continuation'],
+    [cell(2026, 6, 2), cell(2026, 6, 2, 8, 0), 'Insulin', '8 Units', ''],
+  ];
+  const t = load(NOW, rows);
+  const got = t.api.readRows(30);
+  eq(got.length, 3, 'in-window rows above an old-dated block are still returned');
+  ok(got.every(r => !/\/06\//.test(r.date)), 'and the stale block, continuation rows included, is left out');
+  eq(got[1].date, '10/08/2026', 'carried dates inside the window survive');
+  eq(t.api.readRows().length, 6, 'no argument still returns every row');
+  // The ceiling: more than 200 consecutive stale dated rows stops the walk.
+  const many = rows.slice(0, 3);
+  for (let i = 0; i < 250; i++) many.push([cell(2026, 6, 1 + (i % 28)), cell(2026, 6, 1, 8, 0), 'Walk', '10', '']);
+  eq(load(NOW, many).api.readRows(30).length, 0, 'but the walk is bounded: a 250-row stale block does hide what is above it');
+}
+
+/* ================= 'fix' action: cross-device delete and update ================= */
+{
+  const NOW = at(2026, 8, 28, 12, 0), SECRET = 'CHANGE_ME_TO_YOUR_OWN_SECRET';
+  const mk = () => load(NOW, [
+    [cell(2026, 8, 27), cell(2026, 8, 27, 8, 0), 'Insulin', '8 Units', ''],          // sheet row 3
+    ['', cell(2026, 8, 27, 9, 0), 'Canned Food', '2', 'a'],                           // row 4, date blank
+    ['', cell(2026, 8, 27, 10, 0), 'Walk', '15', ''],                                 // row 5, date blank
+    [cell(2026, 8, 28), cell(2026, 8, 28, 8, 0), 'Insulin', '8 Units', ''],          // row 6
+    ['', cell(2026, 8, 28, 9, 0), 'Canned Food', '2', ''],                            // row 7
+  ], { calendarFails: true });
+  const key = (d, tm, ty) => ({ date: d, time: tm, type: ty });
+  const listOf = t => JSON.parse(t.api.doGet({ parameter: { secret: SECRET } }).__out);
+
+  {
+    const t = mk();
+    const r = t.post({ action: 'fix', del: [key('27/08/2026', '9:00 am', 'Canned Food')] });
+    eq(r.ok, true, 'fix answers ok');
+    eq(r.deleted, 1, 'one row cleared');
+    eq(r.updated, 0, 'nothing updated');
+    const v = t.sheet().getDataRange().getValues();
+    eq([v[3][3], v[3][4], v[3][5]].join('|'), '||', 'TYPE, QTY and NOTES are cleared');
+    eq(v[3][1], '', 'the DATE cell is never touched');
+    eq(v.length, 7, 'and the row itself is not removed');
+    const rows = t.api.readRows(30);
+    eq(rows.length, 4, 'the cleared row reads back as gone');
+    const walk = rows.find(x => x.type === 'Walk');
+    eq(walk.date, '27/08/2026', 'carry-forward: the row after the cleared one still reads the right date');
+    eq(rows.find(x => x.date === '28/08/2026').time, '8:00 am', 'and the next day is intact');
+    eq(t.locks.join(), 'wait,release', 'fix runs inside the script lock');
+    ok('tomb:27/08/2026|9:00 am|canned food' in t.props, 'a tombstone is recorded under the lowercased type');
+    eq(t.props['tomb:27/08/2026|9:00 am|canned food'], String(NOW), 'valued with the time of the delete');
+    eq(JSON.stringify(listOf(t).tomb), JSON.stringify([key('27/08/2026', '9:00 am', 'canned food')]), 'list returns it');
+    eq(listOf(t).rows.length, 4, 'and the list rows no longer include the deleted one');
+    ok(!('row' in listOf(t).rows[0]), 'list rows keep their old shape');
+  }
+  {
+    // The first row of a day is the one that carries the date: clearing it must
+    // not re-date the rows under it.
+    const t = mk();
+    t.post({ action: 'fix', del: [key('27/08/2026', '8:00 am', 'Insulin')] });
+    const rows = t.api.readRows(30);
+    eq(rows[0].date, '27/08/2026', 'clearing a day-leading row leaves its date cell for the rows below');
+    eq(rows[0].type, 'Canned Food', 'and they keep that date');
+  }
+  {
+    const t = mk();
+    const r = t.post({ action: 'fix', upd: [
+      { date: '28/08/2026', time: '8:00 am', type: 'INSULIN ', qty: '9 Units', notes: 'vet said 9' },
+      { date: '28/08/2026', time: '3:33 pm', type: 'Insulin', qty: '1 Units', notes: 'no such row' },
+    ] });
+    eq(r.updated, 1, 'update is matched by key (type case-insensitive); a miss is ignored');
+    eq(r.deleted, 0, 'no deletes');
+    const v = t.sheet().getDataRange().getValues();
+    eq(v[5][4], '9 Units', 'QTY updated');
+    eq(v[5][5], 'vet said 9', 'NOTES updated');
+    eq(v[5][3], 'Insulin', 'TYPE left alone');
+    eq(v[2][4], '8 Units', 'other rows untouched');
+    eq(Object.keys(t.props).filter(k => k.indexOf('tomb:') === 0).length, 0, 'an update records no tombstone');
+  }
+  {
+    // Two rows share one key (same type, same minute): only the first is touched.
+    const dup = () => load(NOW, [
+      [cell(2026, 8, 28), cell(2026, 8, 28, 9, 0), 'Canned Food', '1', 'first'],
+      ['', cell(2026, 8, 28, 9, 0), 'Canned Food', '1', 'second'],
+    ]);
+    const t = dup();
+    const r = t.post({ action: 'fix', del: [key('28/08/2026', '9:00 am', 'Canned Food')] });
+    eq(r.deleted, 1, 'duplicate keys: one clear');
+    const v = t.sheet().getDataRange().getValues();
+    eq(v[2][3], '', 'the first match is cleared');
+    eq(v[3][3], 'Canned Food', 'the second is left');
+    const u = dup();
+    u.post({ action: 'fix', upd: [{ date: '28/08/2026', time: '9:00 am', type: 'Canned Food', qty: '5', notes: 'x' }] });
+    eq(u.sheet().getDataRange().getValues()[2][4], '5', 'update hits the first');
+    eq(u.sheet().getDataRange().getValues()[3][4], '1', 'and only the first');
+  }
+  {
+    // Two queued edits of one entry: the last write must land, not the first.
+    const t = mk();
+    const k = { date: '28/08/2026', time: '8:00 am', type: 'Insulin' };
+    const r = t.post({ action: 'fix', upd: [Object.assign({ qty: '9 Units', notes: 'one' }, k), Object.assign({ qty: '10 Units', notes: 'two' }, k)] });
+    eq(r.updated, 2, 'both edits are applied');
+    const v = t.sheet().getDataRange().getValues();
+    eq(v[5][4] + '|' + v[5][5], '10 Units|two', 'the later edit of the same key wins');
+  }
+  {
+    // A phone may hold an entry the sheet never got, so the tombstone is kept anyway.
+    const t = mk();
+    const r = t.post({ action: 'fix', del: [key('27/08/2026', '4:44 pm', 'Walk'), key('01/01/2020', '8:00 am', 'Insulin')] });
+    eq(r.deleted, 0, 'nothing matched, nothing cleared');
+    ok('tomb:27/08/2026|4:44 pm|walk' in t.props, 'but the tombstone is still recorded');
+    ok('tomb:01/01/2020|8:00 am|insulin' in t.props, 'even for a row outside the scanned window');
+  }
+  {
+    // Rows older than 31 days are not scanned.
+    const t = load(NOW, [[cell(2026, 7, 20), cell(2026, 7, 20, 8, 0), 'Insulin', '8 Units', '']]);
+    eq(t.post({ action: 'fix', del: [key('20/07/2026', '8:00 am', 'Insulin')] }).deleted, 0, 'a 39-day-old row is out of reach');
+    eq(t.sheet().getDataRange().getValues()[2][3], 'Insulin', 'and is untouched');
+  }
+  {
+    // A deliberate re-log revives the entry.
+    const t = mk();
+    t.post({ action: 'fix', del: [key('28/08/2026', '9:00 am', 'Canned Food')] });
+    eq(listOf(t).tomb.length, 1, 'tombstoned');
+    eq(t.post({ action: 'append', rows: [{ date: '28/08/2026', time: '9:00 am', type: 'Canned Food', qty: '2', notes: '' }] }).added, 1, 're-appended');
+    eq(listOf(t).tomb.length, 0, 'the append clears the tombstone');
+    ok(!('tomb:28/08/2026|9:00 am|canned food' in t.props), 'from the properties too');
+    // An append of something else leaves other tombstones alone.
+    t.post({ action: 'fix', del: [key('28/08/2026', '9:00 am', 'Canned Food')] });
+    t.post({ action: 'append', rows: [{ date: '28/08/2026', time: '9:01 am', type: 'Canned Food', qty: '2', notes: '' }] });
+    eq(listOf(t).tomb.length, 1, 'an unrelated append does not revive it');
+  }
+  {
+    // An alias the app does not know ("Treats") lives there as a note with srcType
+    // "Treats", but canonType_ makes it "Treat": the tomb must keep the app's text.
+    const t = load(NOW, [[cell(2026, 8, 27), cell(2026, 8, 27, 8, 0), 'Treats', '2', '']]);
+    eq(t.post({ action: 'fix', del: [key('27/08/2026', '8:00 am', 'Treats')] }).deleted, 1, 'an alias row is still matched by its canon type');
+    eq(JSON.stringify(listOf(t).tomb), JSON.stringify([key('27/08/2026', '8:00 am', 'treats')]), 'its tomb carries the text the app sent, not the canon name');
+  }
+  {
+    // Pruned at 31 days, by fix and by list.
+    const old = String(NOW - 32 * 864e5), fresh = String(NOW - 5 * 864e5);
+    const props = { 'tomb:01/07/2026|8:00 am|Insulin': old, 'tomb:23/08/2026|8:00 am|Insulin': fresh, 'stock:Insulin|01/08/2026': '1' };
+    const a = load(NOW, [], { props: Object.assign({}, props) });
+    eq(listOf(a).tomb.length, 1, 'list shows only the live tombstone');
+    ok(!('tomb:01/07/2026|8:00 am|Insulin' in a.props), 'and prunes the stale one');
+    ok('stock:Insulin|01/08/2026' in a.props, 'other keys are untouched');
+    const b = load(NOW, [], { props: Object.assign({}, props) });
+    b.post({ action: 'fix', del: [] });
+    ok(!('tomb:01/07/2026|8:00 am|Insulin' in b.props), 'fix prunes too');
+    ok('tomb:23/08/2026|8:00 am|Insulin' in b.props, 'and keeps the fresh one');
+  }
+  {
+    const t = mk();
+    const r = JSON.parse(t.api.doPost({ postData: { contents: JSON.stringify({ secret: 'wrong', action: 'fix', del: [key('27/08/2026', '9:00 am', 'Canned Food')] }) } }).__out);
+    eq(r.error, 'unauthorized', 'a wrong secret is refused');
+    eq(t.sheet().getDataRange().getValues()[3][3], 'Canned Food', 'and nothing was cleared');
+    eq(Object.keys(t.props).length, 0, 'or recorded');
+    eq(t.post({ action: 'fix' }).ok, true, 'a fix with no lists is a harmless no-op');
+  }
+}
+
+/* ============ shot times follow the app (stored), falling back to the constants ============ */
+{
+  const NOW = at(2026, 8, 28, 10, 45);
+  const t = load(NOW, []);
+  eq(t.api.slotsToCheck_(new Date(NOW)).length, 0, 'fallback: with nothing stored the 11:30 constant rules');
+  t.post({ action: 'stock', items: [], amTime: '10:00', pmTime: '22:15' });
+  eq(t.props.SHOT_AM_TIME, '10:00', 'the stock push stores the morning time');
+  eq(t.props.SHOT_PM_TIME, '22:15', 'and the night time');
+  const s = t.api.slotsToCheck_(new Date(NOW));
+  eq(s.length, 1, 'stored: the 10:00 slot is now 45 min late');
+  eq(s[0].hhmm, '10:00', 'and it carries the stored time');
+  t.post({ action: 'stock', items: [], amTime: 'junk', pmTime: '25:99' });
+  eq(t.props.SHOT_AM_TIME, '10:00', 'a malformed time is ignored');
+  eq(t.props.SHOT_PM_TIME, '22:15', 'including an impossible one');
+  t.post({ action: 'stock', items: [] });
+  eq(t.props.SHOT_AM_TIME, '10:00', 'an older app that sends neither leaves them as they were');
+  const m = load(at(2026, 8, 28, 12, 5), [], { props: { SHOT_AM_TIME: '10:00' } });
+  m.api.checkShotDue();
+  eq(m.mail.length, 1, 'checkShotDue chases the stored time');
+  ok(/due at 10:00/.test(m.mail[0].body), 'and names it');
+}
+{
+  const rows = [[cell(2026, 8, 20), cell(2026, 8, 20, 8, 0), 'Insulin', '16', '']];
+  const t = load(at(2026, 8, 28, 12, 0), rows, {
+    stockRows: [['Insulin', 300, 'units', '15/08/2026'], ['Carrot', 9, '', '01/08/2026']],
+    props: { SHOT_AM_TIME: '10:00', SHOT_PM_TIME: '22:15', 'tomb:27/08/2026|9:00 am|Walk': String(at(2026, 8, 28, 12, 0)), 'stock:Gone|01/01/2020': '1' },
+  });
+  t.api.checkStock();
+  ok(!('stock:Gone|01/01/2020' in t.props), 'the stock cleanup still runs');
+  eq(t.props.SHOT_AM_TIME + t.props.SHOT_PM_TIME, '10:0022:15', 'but never deletes the stored shot times');
+  ok('tomb:27/08/2026|9:00 am|Walk' in t.props, 'or a tombstone');
+  t.api.cleanupAlertKeys_({ getProperties: () => Object.assign({}, t.props), deleteProperty: k => { delete t.props[k]; } });
+  eq(t.props.SHOT_AM_TIME + t.props.SHOT_PM_TIME, '10:0022:15', 'nor does the alert cleanup');
+}
+
+/* ================= checkShotDue reads two days, not the whole sheet ================= */
+{
+  const { api, mail } = load(at(2026, 8, 28, 12, 5), [
+    [cell(2026, 8, 20), cell(2026, 8, 20, 11, 30), 'Insulin', '8 Units', ''],
+  ]);
+  api.checkShotDue();
+  eq(mail.length, 1, 'an insulin row a week old does not cover today');
+  ok(/No insulin logged in the last two days/.test(mail[0].body), 'and it is not quoted as the last shot (only two days are read)');
+}
+{
+  const { api, mail } = load(at(2026, 8, 28, 12, 5), [
+    [cell(2026, 8, 27), cell(2026, 8, 27, 8, 0), 'Insulin', '8 Units', ''],
+  ]);
+  api.checkShotDue();
+  ok(/Last insulin logged: Thu 27 Aug, 8:00 AM/.test(mail[0].body), "yesterday's shot is still quoted");
+}
+
+/* ================= KNOWN_TYPES: dose change, and the app's other spellings ================= */
+{
+  const { api } = load(at(2026, 8, 28, 12, 0), []);
+  eq(api.canonType_('Dose change'), 'Dose change', 'a dose change is a known type');
+  eq(api.canonType_('fleeing'), 'Wormer / Flea', 'fleeing');
+  eq(api.canonType_('fleaing'), 'Wormer / Flea', 'fleaing');
+  eq(api.canonType_('worming'), 'Wormer / Flea', 'worming');
+  eq(api.canonType_('sick'), 'Was sick', 'sick');
+  const t = load(at(2026, 8, 28, 12, 0), [[cell(2026, 8, 20), cell(2026, 8, 20, 9, 0), 'Dose change', '9', '']]);
+  ok(!/Dose change:/.test(t.api.buildReportStats_(30).text), 'and it is not summed as a total');
 }
 
 /* ================= writes are serialised by the script lock ================= */

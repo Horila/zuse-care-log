@@ -1,9 +1,8 @@
 /* ==========================================================================
  * PASTE THIS OVER THE BOTTOM OF YOUR APPS SCRIPT
  *
- * This is everything from "function doPost(e) {" to the end of the file.
- * It deliberately starts below your SECRET, so your own secret is never
- * touched.
+ * This is everything from "function doPost(e) {" to the end of the file,
+ * starting below your SECRET so your own secret is never touched.
  *
  * HOW:
  * 1. Open the Apps Script editor on the sheet.
@@ -11,6 +10,7 @@
  *    Select from there all the way to the very bottom of the file, and
  *    delete it. Everything above that line stays exactly as it is.
  * 3. Paste this whole file in its place. Save.
+ *    ONE TIME: swap the old doGet near the top for  function doGet(e) { return handleGet_(e); }
  *
  * 4. THE WEB APP MUST BE REDEPLOYED, or the app's new buttons will answer
  *    "unknown action". Deploy -> Manage deployments -> the pencil icon ->
@@ -66,6 +66,7 @@ function doPost(e) {
     const lock = LockService.getScriptLock();
     lock.waitLock(30000);
     try {
+      saveShotTimes_(body);
       return jsonOut({ ok: true, saved: writeStockTab_(body.items || []) });
     } finally {
       lock.releaseLock();
@@ -79,7 +80,43 @@ function doPost(e) {
     PropertiesService.getScriptProperties().setProperty('vetorder:' + body.name + '|' + body.since, '1');
     return jsonOut({ ok: true });
   }
+  // Cross-device delete/update of rows already on the sheet. Same lock as append:
+  // both read row numbers and then write to them. No CalendarApp, like the rest.
+  if (body.action === 'fix') {
+    const lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    try {
+      return jsonOut(fixRows_(body.del, body.upd));
+    } finally {
+      lock.releaseLock();
+    }
+  }
   return jsonOut({ error: 'unknown action' });
+}
+
+/** The doGet logic. Lives down here so the paste-over file carries it; doGet
+ *  itself is a one-liner that never needs to change again. */
+function handleGet_(e) {
+  if (!e.parameter.secret || e.parameter.secret !== SECRET) {
+    return jsonOut({ error: 'unauthorized' });
+  }
+  const action = e.parameter.action || 'list';
+  if (action === 'list') {
+    // days=0 reads the whole sheet: the app asks for that when its log is empty.
+    const days = e.parameter.days === '0' ? 0 : 30;
+    const tomb = pruneTombs_(PropertiesService.getScriptProperties());
+    return jsonOut({ rows: readRows(days), stock: readStockTab_(), days: days, tomb: tomb });
+  }
+  return jsonOut({ error: 'unknown action' });
+}
+
+/** The app's shot times (Setup screen) ride along on every stock push, so the
+ *  missed-shot checker follows them. AM_TIME / PM_TIME below are the fallback. */
+const SHOT_TIME_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
+function saveShotTimes_(body) {
+  const props = PropertiesService.getScriptProperties();
+  if (SHOT_TIME_RE.test(body.amTime)) props.setProperty('SHOT_AM_TIME', body.amTime);
+  if (SHOT_TIME_RE.test(body.pmTime)) props.setProperty('SHOT_PM_TIME', body.pmTime);
 }
 
 function getSheet_() {
@@ -88,34 +125,44 @@ function getSheet_() {
   return sh;
 }
 
+const TOMB_DAYS = 31;      // how long a deleted row's tombstone lives (and how far back 'fix' looks)
+const STALE_ROWS = 200;    // out-of-window dated rows tolerated, in a row, while finding the window
+
 /** Reads every data row (skipping the 2 header rows), carrying the date
  *  forward for rows where the DATE cell is blank (same-day continuation).
  *  With `days`, reads only the rows from the last `days` days: the sync runs
  *  on every insulin log and the sheet only grows, so reading all of it is what
  *  makes it slow. Finds the cut by walking the date column up from the bottom,
- *  so it assumes rows are in date order (append keeps them so).
- *  ponytail: a hand-sorted sheet could drop old-dated rows below the cut. */
+ *  skipping out-of-window dates (a stale push can leave an old-dated block at
+ *  the bottom) and giving up after STALE_ROWS of them in a row.
+ *  ponytail: a stale block longer than STALE_ROWS dated rows hides what is above
+ *  it; raise STALE_ROWS or sort the sheet. */
 function readRows(days) {
+  return scanRows_(days).map(function (r) { delete r.row; return r; });
+}
+
+/** readRows, plus each row's 1-based sheet row number as `row`. */
+function scanRows_(days) {
   const sh = getSheet_();
-  let values, from = 2;
+  let values, base = 1, from = 2;      // base: sheet row of values[0]
   if (days) {
     const last = sh.getLastRow();
     if (last < 3) return [];
     const dates = sh.getRange(3, 2, last - 2, 1).getValues();
-    let start = -1;
-    for (let i = dates.length - 1; i >= 0; i--) {
+    let start = -1, stale = 0;
+    for (let i = dates.length - 1; i >= 0 && stale < STALE_ROWS; i--) {
       if (!dates[i][0]) continue;
-      if (!isWithinDays_(formatDate_(dates[i][0]), days)) break;
-      start = i;
+      if (isWithinDays_(formatDate_(dates[i][0]), days)) { start = i; stale = 0; } else stale++;
     }
     if (start < 0) return [];
+    base = 3 + start;
     from = 0;
-    values = sh.getRange(3 + start, 1, last - 2 - start, 6).getValues();
+    values = sh.getRange(base, 1, last - 2 - start, 6).getValues();
   } else {
     values = sh.getDataRange().getValues();
   }
   const out = [];
-  let curDate = '';
+  let curDate = '', inWindow = true;
   for (let i = from; i < values.length; i++) {
     const row = values[i];
     const dateCell = row[1];
@@ -123,9 +170,13 @@ function readRows(days) {
     const type = row[3];
     const qty = row[4];
     const notes = row[5];
-    if (dateCell) curDate = formatDate_(dateCell);
-    if (!type) continue; // blank/free-text rows with no TYPE are skipped
+    if (dateCell) {
+      curDate = formatDate_(dateCell);
+      inWindow = !days || isWithinDays_(curDate, days);
+    }
+    if (!type || !inWindow) continue; // blank/free-text rows with no TYPE are skipped
     out.push({
+      row: base + i,
       date: curDate,
       time: formatTime_(timeCell),
       type: String(type),
@@ -156,8 +207,84 @@ function appendRows(rows) {
   });
   if (out.length) {
     sh.getRange(sh.getLastRow() + 1, 1, out.length, 6).setValues(out);
+    // A deliberate re-log revives an entry that was deleted from another phone.
+    const props = PropertiesService.getScriptProperties();
+    const have = props.getProperties();
+    rows.forEach(function (r) {
+      const k = tombKey_(r);
+      if (k in have) props.deleteProperty(k);
+    });
   }
   return out.length;
+}
+
+/** Same row as the app's entry? The sheet triple (date, 12h time, type) is the
+ *  identity on both sides; the type is compared normalised. */
+function tripleKey_(t) {
+  const d = parseRowDate_(t.date, t.time);
+  return d ? d.getTime() + '|' + normType_(t.type) : null;
+}
+
+/** Known types by display name, anything else emoji-stripped and lowercased. */
+function normType_(x) {
+  return canonType_(x) || plainType_(x);
+}
+function plainType_(x) {
+  return String(x).replace(/[^\x20-\x7E]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/** Keyed on the type text the app sent, lowercased, NOT the canon name: the
+ *  app keeps a type it doesn't know ("Treats") as that text, and canonType_
+ *  would hand it back as "Treat", which the app could never match. */
+function tombKey_(t) {
+  return 'tomb:' + t.date + '|' + t.time + '|' + plainType_(t.type);
+}
+
+/** Drops tombstones older than TOMB_DAYS and returns the live ones as
+ *  {date, time, type}. Script Properties, not a sheet column: no layout change. */
+function pruneTombs_(props) {
+  const all = props.getProperties(), cut = Date.now() - TOMB_DAYS * 864e5, live = [];
+  Object.keys(all).forEach(function (k) {
+    if (k.indexOf('tomb:') !== 0) return;
+    if (!(Number(all[k]) >= cut)) { props.deleteProperty(k); return; }
+    const p = k.substring(5).split('|');
+    live.push({ date: p[0], time: p[1], type: p.slice(2).join('|') });
+  });
+  return live;
+}
+
+/** The 'fix' action. Delete CLEARS the row's TYPE/QTY/NOTES, never the row or
+ *  its DATE cell: later rows with a blank date inherit the one above, and
+ *  readRows already skips a row with no type. Every delete leaves a tombstone,
+ *  matched or not, so a phone still holding the entry drops it. Update rewrites
+ *  QTY/NOTES. A delete consumes the first matching row (so a repeat hits a
+ *  duplicate); an update always writes the first match that is still live.
+ *  ponytail: same type in the same minute is one key, so the first sheet row wins
+ *  and the second never reaches the sheet. Rare, accepted. */
+function fixRows_(del, upd) {
+  const sh = getSheet_();
+  const props = PropertiesService.getScriptProperties();
+  pruneTombs_(props);
+  const rows = scanRows_(TOMB_DAYS);
+  const take = function (t, keep) {
+    const k = tripleKey_(t);
+    for (let i = 0; i < rows.length; i++) {
+      if (tripleKey_(rows[i]) === k) return keep ? rows[i] : rows.splice(i, 1)[0];
+    }
+    return null;
+  };
+  const valid = function (t) { return t && t.date && t.time && t.type && tripleKey_(t); };
+  let deleted = 0, updated = 0;
+  (Array.isArray(del) ? del : []).filter(valid).forEach(function (t) {
+    const r = take(t);
+    if (r) { sh.getRange(r.row, 4, 1, 3).setValues([['', '', '']]); deleted++; }
+    props.setProperty(tombKey_(t), String(Date.now()));
+  });
+  (Array.isArray(upd) ? upd : []).filter(valid).forEach(function (u) {
+    const r = take(u, true);   // kept: two queued edits of one entry both land, the last wins
+    if (r) { sh.getRange(r.row, 5, 1, 2).setValues([[u.qty == null ? '' : u.qty, u.notes || '']]); updated++; }
+  });
+  return { ok: true, deleted: deleted, updated: updated };
 }
 
 /** dd/MM/yyyy row date within the last `days` days? Unparseable dates are
@@ -199,7 +326,8 @@ function jsonOut(obj) {
  *
  * SETUP (one-time, after pasting this file in):
  * 1. Set ALERT_EMAIL below to the address you actually read on your phone.
- * 2. Check AM_TIME / PM_TIME match the times set in the app's Setup screen.
+ * 2. AM_TIME / PM_TIME are only a fallback: the app sends the times from its
+ *    Setup screen with every sync, and those win once it has synced.
  * 3. In the Apps Script editor, pick "installReminders" from the function
  *    dropdown and click Run. Authorize when asked.
  * 4. That's it — it now checks every 15 minutes and emails you once per
@@ -230,7 +358,7 @@ function installReminders() {
 function checkShotDue() {
   if (!ALERT_EMAIL) return;
   const now = new Date();
-  const rows = readRows();
+  const rows = readRows(2);   // only yesterday's and today's slots are judged
 
   // Every insulin time logged, as real dates, so a slot just before midnight
   // can still be judged from the far side of midnight.
@@ -257,7 +385,7 @@ function checkShotDue() {
       'Zuse: ' + slot.name + ' insulin not logged',
       'The ' + slot.name + ' shot was due at ' + slot.hhmm + '.\n' +
       'It is now ' + fmtLocal_(now) + ' — ' + lateMin + ' minutes past, and nothing is logged.\n\n' +
-      (last ? 'Last insulin logged: ' + fmtLocal_(last) + '\n\n' : 'No insulin has ever been logged.\n\n') +
+      (last ? 'Last insulin logged: ' + fmtLocal_(last) + '\n\n' : 'No insulin logged in the last two days.\n\n') +
       'If he has had it, log it in the app so this stops chasing you.\n' +
       '(One email per missed shot. Nothing else is sent.)'
     );
@@ -271,7 +399,10 @@ function checkShotDue() {
 function slotsToCheck_(now) {
   const out = [];
   [-1, 0].forEach(function (dayOffset) {
-    [['morning', AM_TIME], ['night', PM_TIME]].forEach(function (pair) {
+    const props = PropertiesService.getScriptProperties();
+    // The app's own times (sent with each stock push) win over the constants.
+    [['morning', props.getProperty('SHOT_AM_TIME') || AM_TIME],
+     ['night', props.getProperty('SHOT_PM_TIME') || PM_TIME]].forEach(function (pair) {
       const parts = String(pair[1]).split(':');
       const at = new Date(now.getFullYear(), now.getMonth(), now.getDate() + dayOffset,
                           Number(parts[0]), Number(parts[1]), 0);
@@ -461,11 +592,13 @@ const KNOWN_TYPES = {
   'weight': 'Weight', 'glucose': 'Glucose', 'urine test': 'Urine test',
   'vets visit': 'Vets Visit',
   'wormer / flea': 'Wormer / Flea', 'frontline wormer': 'Wormer / Flea',
+  'fleeing': 'Wormer / Flea', 'fleaing': 'Wormer / Flea', 'worming': 'Wormer / Flea',
+  'dose change': 'Dose change',
   'poop': 'Poop', 'wee wee': 'Wee Wee', 'weewee': 'Wee Wee',
-  'pee accident': 'Pee accident', 'was sick': 'Was sick', 'diarrhea': 'Diarrhea'
+  'pee accident': 'Pee accident', 'was sick': 'Was sick', 'sick': 'Was sick', 'diarrhea': 'Diarrhea'
 };
 /* Reported on their own further down, so they must not also appear as a total. */
-const NOT_A_TOTAL = ['Weight', 'Glucose', 'Urine test', 'Vets Visit', 'Note'];
+const NOT_A_TOTAL = ['Weight', 'Glucose', 'Urine test', 'Vets Visit', 'Note', 'Dose change'];
 /* Substring match. The real rows read "diarrhea still", "wee we/runny poop" and
  * so on; exact matching undercounted these by more than half. */
 const INCIDENT_RE = /sick|diarrh|runny poop|soft poop|pee accident|vomit/i;
