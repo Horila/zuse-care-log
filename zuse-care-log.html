@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#FFB23F">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.json">
@@ -54,7 +54,6 @@ header{padding:calc(14px + env(safe-area-inset-top)) 0 6px;position:sticky;top:0
 .floatSync.busy{border-color:var(--insulin);color:var(--insulin)}
 .floatSync.busy .ic{display:block;animation:spin .9s linear infinite}
 @media (prefers-reduced-motion:reduce){.floatSync.busy .ic{animation:pulse 1s ease-in-out infinite}}
-@keyframes pulse{50%{opacity:.35}}
 .hrow{display:flex;align-items:center;gap:11px}
 .pip{width:38px;height:38px;border-radius:12px;background:linear-gradient(150deg,#2C3B47,#16202A);display:grid;place-items:center;font-size:20px;border:1px solid var(--line)}
 .hname{font-family:var(--dsp);font-weight:700;font-size:19px;line-height:1}
@@ -199,6 +198,8 @@ nav{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(14,20,25,.
 /* toast */
 #toast{position:fixed;left:50%;bottom:calc(88px + env(safe-area-inset-bottom));transform:translate(-50%,14px);z-index:70;background:#F2F7FA;color:#0E1419;padding:11px 17px;border-radius:99px;font-size:13.5px;font-weight:600;opacity:0;transition:.22s;pointer-events:none;box-shadow:0 8px 26px rgba(0,0,0,.5);max-width:88vw;text-align:center}
 #toast.on{opacity:1;transform:translate(-50%,0)}
+#toast button{margin-left:10px;padding:6px 4px;color:#0B6FA4;font-weight:700;text-decoration:underline}
+#toast.on button{pointer-events:auto}
 
 .view{display:none;animation:fade .22s ease both}
 .view.on{display:block}
@@ -323,7 +324,7 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
 <!-- ============ TRENDS ============ -->
 <div class="view" id="v-trend">
   <section>
-    <div class="shead"><h2>Trends</h2><span class="note">since Dec 2025</span></div>
+    <div class="shead"><h2>Trends</h2><span class="note" id="trendSince"></span></div>
     <div id="charts"></div>
   </section>
 </div>
@@ -370,7 +371,8 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
         <div class="fld"><label>Morning time</label><input id="sAm" type="time"></div>
         <div class="fld"><label>Night time</label><input id="sPm" type="time"></div>
       </div>
-      <div class="fld" style="margin-bottom:0"><label>Hours between shots</label><input id="sGap" type="number" step="0.5" inputmode="decimal"></div>
+      <div class="fld"><label>Hours between shots</label><input id="sGap" type="number" step="0.5" inputmode="decimal"></div>
+      <div class="fld" style="margin-bottom:0"><label>Carer name (this phone)</label><input id="sCarer" placeholder="added to the notes of what you log"></div>
     </div>
   </section>
   <section>
@@ -621,10 +623,12 @@ const T={
   // s:1 — stock-only. A syringe is used, never logged: one goes with every
   // insulin shot, so its count is derived (see PER_SHOT) and it must stay out
   // of every list you can log from.
-  syringe:{n:'Syringes',i:'💉',c:'--insulin',u:'syringes',d:1,s:1}
+  syringe:{n:'Syringes',i:'💉',c:'--insulin',u:'syringes',d:1,s:1},
+  // Logged by Setup when the insulin dose field changes; qty is the new dose.
+  dose:{n:'Dose change',i:'📈',c:'--insulin',u:'units',d:8}
 };
 const LOGGABLE=()=>Object.keys(T).filter(k=>!T[k].s);
-const QUICK=['insulin','food','walk','chicken','pred','para','samylin','poop','weewee'];
+const QUICK=['insulin','food','walk','chicken','glucose','pred','para','samylin','poop','weewee'];
 const FLAGS=['sick','diarrhea','pee','vet'];
 
 /* ---------------- defaults ---------------- */
@@ -643,7 +647,7 @@ const TYPE_ALIASES={
   'weight':'weight','glucose':'glucose','urine test':'urine','vets visit':'vet',
   'wormer / flea':'wormer','fleeing':'wormer','fleaing':'wormer','worming':'wormer',
   'poop':'poop','pee accident':'pee','was sick':'sick','sick':'sick','diarrhea':'diarrhea',
-  'bath':'bath','note':'note'
+  'bath':'bath','note':'note','dose change':'dose'
 };
 let cfg=JSON.parse(JSON.stringify(DEF));
 let entries=[];
@@ -709,7 +713,18 @@ const hm=d=>`${pad(d.getHours())}:${pad(d.getMinutes())}`;
 const cvar=k=>getComputedStyle(document.documentElement).getPropertyValue(k).trim()||'#8AA0AE';
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 function fmt12(t){const[h,m]=t.split(':').map(Number);const ap=h>=12?'pm':'am';const hh=h%12||12;return `${hh}:${pad(m)} ${ap}`}
-function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('on');clearTimeout(t._x);t._x=setTimeout(()=>t.classList.remove('on'),m.length>90?9000:1900)}
+/* undo: optional callback, shown as an Undo button for 5s. A sync's message
+   (wait) arriving meanwhile, say from the sync an insulin log starts, waits
+   its turn rather than wiping the button. Failures stay up long enough to read. */
+function toast(m,undo,wait){
+  const t=document.getElementById('toast');
+  if(wait&&t._u){t._q=m;return}
+  t.textContent=m;t._u=undo;
+  if(undo){const b=document.createElement('button');b.textContent='Undo';b.onclick=()=>{t._u=t._q=null;t.classList.remove('on');undo()};t.append(b)}
+  t.classList.add('on');clearTimeout(t._x);
+  t._x=setTimeout(()=>{t.classList.remove('on');const q=t._q;t._u=t._q=null;if(q)toast(q)},
+    m.length>90?9000:undo||/fail|error|not |n't |first|needs/i.test(m)?5000:1900);
+}
 function dayLabel(ds){
   const d=new Date(ds+'T12:00:00'), t=new Date(), y=new Date(Date.now()-864e5);
   if(ds===iso(t))return 'Today'; if(ds===iso(y))return 'Yesterday';
@@ -787,7 +802,9 @@ function renderWakeBtn(){
   b.classList.toggle('on',cfg.wakeOn);
 }
 document.addEventListener('visibilitychange',()=>{
-  if(document.visibilityState==='visible'&&cfg.wakeOn&&!wakeLock)acquireWake();
+  if(document.visibilityState!=='visible')return;
+  if(cfg.wakeOn&&!wakeLock)acquireWake();
+  autoSync();
 });
 
 /* ---------------- core log ---------------- */
@@ -795,12 +812,73 @@ function add(type,qty,note,when,extra){
   const d=when||new Date();
   const e={id:uid(),date:iso(d),time:hm(d),type,qty:qty===''?'':Number(qty),note:note||''};
   if(extra)Object.assign(e,extra);
-  entries.push(e);
+  if(cfg.carer)e.by=cfg.carer;
+  entries.push(e);revive(e);
   save();renderAll();
+  // The missed-shot checker and the other phone's double-dose guard both read
+  // the sheet, so a shot goes there now rather than at the next manual sync.
+  if(type==='insulin'&&cfg.syncUrl&&cfg.syncKey)syncNow();
+  return e;
+}
+/* A one-tap log: say so, with five seconds to take a mis-tap back. */
+function logged(e){
+  toast(`${T[e.type].n} logged`,()=>{
+    if(!removeEntry(e.id))return;
+    renderAll();toast(`${T[e.type].n} removed`);
+    if(cfg.syncUrl&&cfg.syncKey)syncNow();
+  });
 }
 function sortEntries(){entries.sort((a,b)=>(a.date+a.time)<(b.date+b.time)?1:-1)}
 function ts(e){return new Date(`${e.date}T${e.time}:00`)}
 function byDate(ds){return entries.filter(e=>e.date===ds).sort((a,b)=>a.time<b.time?-1:1)}
+/* Sync identity of an entry: the sheet's date|time|type. srcType keeps an
+   unrecognised sheet type's own text, so the key still matches the sheet.
+   ponytail: two entries of one type in the same minute share a key; the second
+   never reaches the sheet, and deleting either clears the first sheet row. A
+   per-entry id column on the sheet is the upgrade if that ever bites. */
+function keyOf(e){return `${e.date}|${e.time}|${e.srcType||(T[e.type]?T[e.type].n:e.type)}`}
+function tripleOf(e){return{date:dmyFromIso(e.date),time:fmt12(e.time),type:e.srcType||(T[e.type]?T[e.type].n:e.type)}}
+const rowOf=t=>`${t.date}|${t.time}|${t.type}`;
+/* The NOTES cell as pushed: who logged it rides at the end ("note · R", or
+   "· R" alone), so the sheet needs no new column. carerOf reads it back. */
+function sheetNote(e){return e.by?`${e.note?e.note+' ':''}· ${e.by}`:(e.note||'')}
+function carerOf(e){return e.by||((e.note||'').match(/(?:^|\s)· ([^·]+)$/)||[])[1]||''}
+/* Tombstone keys compare the way the script's plainType_ does: no emoji, case or
+   doubled spaces, and no space left at either end of the type ("💉 Insulin"). */
+function tombKey(k){return k.replace(/[^\x20-\x7E]/g,'').replace(/\s+/g,' ').replace(/ ?\| ?/g,'|').trim().toLowerCase()}
+/* Deletes and edits reach the sheet through cfg.fixQ, sent as 'fix' by the next
+   sync. cfg.tomb (tombKey -> entry date) stops a sync pulling a deleted row back. */
+function fixQueue(){return cfg.fixQ=cfg.fixQ||{del:[],upd:[]}}
+function queueUpd(e){
+  // a srcType note holds the row's qty inside its composed note: rewriting would blank QTY
+  if(!cfg.syncUrl||!cfg.syncKey||e.srcType)return;
+  const q=fixQueue(),r=tripleOf(e),id=rowOf(r);
+  q.upd=q.upd.filter(u=>rowOf(u)!==id);
+  q.upd.push(Object.assign(r,{qty:formatQtySheet(e.type,e.qty),notes:sheetNote(e)}));
+}
+function forget(e){
+  (cfg.tomb=cfg.tomb||{})[tombKey(keyOf(e))]=e.date;
+  if(!cfg.syncUrl||!cfg.syncKey)return;
+  const q=fixQueue(),r=tripleOf(e),id=rowOf(r);
+  q.upd=q.upd.filter(u=>rowOf(u)!==id);
+  if(!q.del.some(d=>rowOf(d)===id))q.del.push(r);
+}
+/* Re-logging a deleted key: a delete still queued becomes an update of the row
+   that is still there; one already sent left a tombstone on the script, which
+   `relog` makes this phone ignore until the push puts the row back. */
+function revive(e){
+  const k=tombKey(keyOf(e));
+  if(!cfg.tomb||!cfg.tomb[k])return;
+  delete cfg.tomb[k];e.relog=1;
+  const q=fixQueue(),id=rowOf(tripleOf(e));
+  if(q.del.some(d=>rowOf(d)===id)){q.del=q.del.filter(d=>rowOf(d)!==id);queueUpd(e)}
+  saveCfg();
+}
+function removeEntry(id){
+  const e=entries.find(x=>x.id===id);if(!e)return null;
+  entries=entries.filter(x=>x!==e);forget(e);save();saveCfg();
+  return e;
+}
 function lastOf(type){
   let best=null;
   entries.forEach(e=>{if(e.type===type){const t=ts(e);if(!best||t>best)best=t}});
@@ -907,8 +985,7 @@ function openVetSheet(){
 }
 function showVetSheet(){
   renderVetBar();
-  document.getElementById('scrim').classList.add('on');
-  document.getElementById('vetSheet').classList.add('on');
+  openSheet('vetSheet');
 }
 function logVetReading(type){
   const el=document.getElementById(type==='weight'?'vetWeight':'vetGlucose');
@@ -940,8 +1017,7 @@ function openUrineSheet(){
   document.getElementById('uDate').value=iso(now);
   document.getElementById('uTime').value=hm(now);
   URINE_FIELDS.forEach(([id])=>document.getElementById(id).value='');
-  document.getElementById('scrim').classList.add('on');
-  document.getElementById('urineSheet').classList.add('on');
+  openSheet('urineSheet');
 }
 function saveUrineEntry(){
   const date=document.getElementById('uDate').value, time=document.getElementById('uTime').value;
@@ -950,7 +1026,8 @@ function saveUrineEntry(){
     const v=document.getElementById(id).value.trim();
     return v?`${label}: ${v}`:null;
   }).filter(Boolean);
-  entries.push({id:uid(),date,time,type:'urine',qty:'',note:parts.join(' · ')});
+  const e={id:uid(),date,time,type:'urine',qty:'',note:parts.join(' · ')};
+  if(cfg.carer)e.by=cfg.carer;entries.push(e);revive(e);
   save();renderAll();closeSheet();toast('Urine test logged');
 }
 
@@ -1008,16 +1085,22 @@ function renderRing(){
 }
 
 /* ---------------- routine checklist ---------------- */
-function currentRoutine(){
-  const now=new Date(), amH=+cfg.amTime.split(':')[0];
-  const h=now.getHours();
-  return (h>=amH-3 && h<amH+8)?'am':'pm';
+/* The morning round owns [amH-3, amH+8); the night round is everything else,
+   as ONE span from amH+8 to amH-3 the next day, so a round logged either side
+   of midnight belongs to the same night. Returns [from,to) of `which`'s current
+   (or, if it is not running, most recent) window. */
+function routineWin(which,now=new Date()){
+  const s=new Date(now);s.setHours(((+cfg.amTime.split(':')[0]-3)%24+24)%24,0,0,0);
+  if(s>now)s.setDate(s.getDate()-1);
+  const e=new Date(s);e.setHours(e.getHours()+11);
+  if(which==='am')return[s,e];
+  if(now>=e){const n=new Date(s);n.setDate(n.getDate()+1);return[e,n]}
+  const p=new Date(e);p.setDate(p.getDate()-1);return[p,s];
 }
-function routineDone(which){
-  const list=cfg[which], today=byDate(iso(new Date()));
-  const amH=+cfg.amTime.split(':')[0];
-  const inWin=e=>{const eh=+e.time.split(':')[0];return which==='am'?(eh>=amH-3&&eh<amH+8):(eh>=amH+8||eh<amH-3)};
-  return list.map(([ty])=>today.some(e=>e.type===ty&&inWin(e)));
+function currentRoutine(now=new Date()){return now<routineWin('am',now)[1]?'am':'pm'}
+function routineDone(which,now=new Date()){
+  const[a,b]=routineWin(which,now);
+  return cfg[which].map(([ty])=>entries.some(e=>e.type===ty&&ts(e)>=a&&ts(e)<b));
 }
 /* Chicken is weighed out fresh each time, so its qty can't default like a
    fixed tablet dose — ask, same as the quick-log tile does. Cancel skips it. */
@@ -1041,7 +1124,7 @@ function renderChecks(){
       if(ty==='insulin'&&!insulinGuardOk())return;
       let qty=q;
       if(ty==='chicken'){qty=chickenQty(q);if(qty===null)return}
-      add(ty,qty,'');toast(T[ty].n+' logged');
+      logged(add(ty,qty,''));
     };
     box.appendChild(b);
   });
@@ -1069,7 +1152,8 @@ function runRoutine(w){
     batch.push({id:uid(),date,time,type:ty,qty,note:''});
   }
   if(!batch.length){toast(skipInsulin?'Insulin skipped — nothing else left':'Nothing left in that routine');return}
-  entries.push(...batch);
+  if(cfg.carer)batch.forEach(e=>e.by=cfg.carer);
+  entries.push(...batch);batch.forEach(revive);
   save();renderAll();
   toast(`${batch.length} entr${batch.length>1?'ies':'y'} logged${skipInsulin?' · insulin skipped':''}`);
   // Same reasoning as a single insulin entry: get it on the sheet right away
@@ -1173,7 +1257,8 @@ function insulinGuardOk(){
   if(last){
     const hrs=(new Date()-last)/36e5;
     const ago=hrs<1?`${Math.round(hrs*60)} minutes`:`${hrs.toFixed(1)} hours`;
-    if(hrs<cfg.gap*0.5&&!confirm(`Last insulin was ${ago} ago — well short of the ${cfg.gap}h gap. Log another shot?`))return false;
+    const who=carerOf(entries.find(e=>e.type==='insulin'&&+ts(e)===+last));
+    if(hrs<cfg.gap*0.5&&!confirm(`Last insulin was ${ago} ago${who?' by '+who:''} — well short of the ${cfg.gap}h gap. Log another shot?`))return false;
   }
   const fed=lastOf('food');
   if((fed?(new Date()-fed)/6e4:Infinity)>45&&!confirm('No food logged in the last 45 minutes. Did he actually eat? Insulin normally goes in after a meal.'))return false;
@@ -1203,7 +1288,7 @@ const PER_SHOT={syringe:'insulin'};
 /* Zuse takes these on a fixed routine, so logging gaps must not read as a
    changed burn rate. Days-left uses this instead of real usage where set. */
 const FIXED_RATE={samylin:2,pred:.5,insulin:17,syringe:2,para:1,food:4};
-const isoBack=n=>{const d=new Date();d.setDate(d.getDate()-n);return iso(d)};
+const isoBack=(n,now=new Date())=>{const d=new Date(now);d.setDate(d.getDate()-n);return iso(d)};
 function usedSince(type,since){
   const src=PER_SHOT[type];
   return entries.filter(e=>e.type===(src||type)&&e.date>=since).reduce((a,e)=>a+(src?1:(+e.qty||0)),0);
@@ -1386,9 +1471,8 @@ function renderStock(){
         if(!url||!key){toast('Set the sync URL and secret in Setup first');return}
         vb.disabled=true;vb.textContent='Cancelling\u2026';
         try{
-          const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+          const d=await fetchJson(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
             body:JSON.stringify({secret:key,action:'skipVetOrder',name:T[t].n,since:dmyFromIso(cfg.stock[t].since)})});
-          const d=await res.json();
           if(d.error){toast('Cancel failed: '+syncErr(d.error));vb.disabled=false;vb.textContent='Cancel vet email';return}
           cfg.stock[t].vetSkip=cfg.stock[t].since;saveCfg();renderStockAll();
         }catch(err){
@@ -1400,7 +1484,7 @@ function renderStock(){
     }
     const del=document.createElement('button');del.textContent='\u2715';del.setAttribute('aria-label','Stop tracking');
     del.style.cssText='color:var(--dim);padding:2px 4px';
-    del.onclick=()=>{delete cfg.stock[t];saveCfg();renderStockAll()};
+    del.onclick=()=>{if(!confirm(`Stop tracking ${T[t].n}? Its stock figure is forgotten.`))return;delete cfg.stock[t];saveCfg();renderStockAll()};
     side.appendChild(del);
     head.appendChild(lbl);head.appendChild(side);card.appendChild(head);
     const tr=stockTrend(x);
@@ -1450,7 +1534,7 @@ async function pushStock(silent){
   if(!silent&&btn){btn.disabled=true;btn.textContent='Sending\u2026'}
   try{
     const d=await fetchJson(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body:JSON.stringify({secret:key,action:'stock',items})});
+      body:JSON.stringify({secret:key,action:'stock',items,amTime:cfg.amTime,pmTime:cfg.pmTime})});
     if(!d.error){
       // Acknowledged: the sheet now holds the figure that was sent. Only clear the
       // flag where it is still the figure on screen, or a later edit would lose it.
@@ -1475,9 +1559,8 @@ async function emailReportNow(){
   const btn=document.getElementById('reportBtn');
   btn.disabled=true;btn.textContent='Writing the report\u2026';
   try{
-    const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body:JSON.stringify({secret:key,action:'report'})});
-    const d=await res.json();
+    const d=await fetchJson(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({secret:key,action:'report'})},120000);
     toast(d.error?'Report failed: '+syncErr(d.error):'Report emailed to '+d.to);
   }catch(err){
     toast('Report failed: '+(err&&err.message?err.message:err));
@@ -1539,13 +1622,11 @@ function vetSummary(days=30){
 /* Read it before it goes anywhere: what gets handed to a vet is worth a look
    first, and half the time the answer to "how is he doing" is on this screen. */
 function openFeatures(){
-  document.getElementById('scrim').classList.add('on');
-  document.getElementById('featuresSheet').classList.add('on');
+  openSheet('featuresSheet');
 }
 function openVetSummary(){
   document.getElementById('sumText').textContent=vetSummary();
-  document.getElementById('scrim').classList.add('on');
-  document.getElementById('sumSheet').classList.add('on');
+  openSheet('sumSheet');
 }
 async function shareVetSummary(){
   const text=document.getElementById('sumText').textContent||vetSummary();
@@ -1642,8 +1723,11 @@ function tileGrid(el,keys){
       if(k==='vet'){if(vetState){toast('Vet visit already in progress')}else{startVet()}return}
       if(k==='urine'){openUrineSheet();return}
       if(k==='insulin'&&!insulinGuardOk())return;
-      if(t.d===''||['note','weight','glucose','chicken'].includes(k)){openLog(null,k)}
-      else{add(k,k==='insulin'?cfg.insulin:t.d,'');toast(`${t.n} logged`)}
+      // A reading has no sensible default: logging 14 would be a fake one. Cancel logs nothing.
+      if(k==='glucose'){const v=prompt('Glucose reading (mmol/L)?');if(v===null)return;
+        if(!(+v>0)){toast('Enter a reading in mmol/L');return}logged(add(k,+v,''));return}
+      if(t.d===''||['note','weight','chicken','dose'].includes(k)){openLog(null,k)}
+      else logged(add(k,k==='insulin'?cfg.insulin:t.d,''));
     };
     b.oncontextmenu=ev=>{ev.preventDefault();openLog(null,k)};
     el.appendChild(b);
@@ -1741,11 +1825,14 @@ function renderCharts(){
   const w=series('weight'), g=series('glucose'), ins=dailySum('insulin'), wk=dailySum('walk'), fd=dailySum('food');
   const inc=entries.filter(e=>['sick','diarrhea','pee'].includes(e.type)).sort((a,b)=>a.date<b.date?1:-1);
   const c=document.getElementById('charts');
-  const last30=new Date(Date.now()-30*864e5).toISOString().slice(0,10);
+  const last30=isoBack(30);
   const inc30=inc.filter(e=>e.date>=last30).length;
+  const first=entries.reduce((a,e)=>e.date&&e.date<a?e.date:a,'9');
+  const since=first<'9'?'since '+new Date(first+'T12:00:00').toLocaleDateString(undefined,{month:'short',year:'numeric'}):'';
+  document.getElementById('trendSince').textContent=since;
   c.innerHTML=`
-  <div class="chart"><h3>Weight</h3><div class="sub">Every vet weigh-in since December</div>${lineChart(w,cvar('--vet'),' kg',true)}</div>
-  <div class="chart"><h3>Glucose</h3><div class="sub">Readings taken at the vets, mmol/L</div>${lineChart(g,cvar('--alert'),'',true)}</div>
+  <div class="chart"><h3>Weight</h3><div class="sub">Every weigh-in ${since}</div>${lineChart(w,cvar('--vet'),' kg',true)}</div>
+  <div class="chart"><h3>Glucose</h3><div class="sub">Home Libre readings and vet readings, mmol/L</div>${lineChart(g,cvar('--alert'),'',true)}</div>
   <div class="chart"><h3>Insulin per day</h3><div class="sub">Total units across both shots</div>${barChart(ins,cvar('--insulin'),'u')}</div>
   <div class="chart"><h3>Walking per day</h3><div class="sub">Minutes on his feet</div>${barChart(wk,cvar('--walk'),' min')}</div>
   <div class="chart"><h3>Food per day</h3><div class="sub">Cans</div>${barChart(fd,cvar('--food'),' cans')}</div>
@@ -1762,6 +1849,7 @@ function renderSettings(){
   document.getElementById('sAm').value=cfg.amTime;
   document.getElementById('sPm').value=cfg.pmTime;
   document.getElementById('sGap').value=cfg.gap;
+  document.getElementById('sCarer').value=cfg.carer||'';
   document.getElementById('homeStatus').textContent=cfg.homeLat!=null?`Set — ${cfg.homeLat.toFixed(5)}, ${cfg.homeLon.toFixed(5)} ${cfg.homeAcc!=null?`(±${cfg.homeAcc}m)`:'(accuracy unknown — re-set it)'}`:'Not set.';
   document.getElementById('sSyncUrl').value=cfg.syncUrl||'';
   document.getElementById('sSyncKey').value=cfg.syncKey||'';
@@ -1783,12 +1871,16 @@ function renderSettings(){
     box.appendChild(sel);
   });
 }
-['sInsulin','sAm','sPm','sGap'].forEach(id=>{
+['sInsulin','sAm','sPm','sGap','sCarer'].forEach(id=>{
   document.addEventListener('change',ev=>{
     if(ev.target.id!==id)return;
     const v=ev.target.value;
-    if(id==='sInsulin'){cfg.insulin=+v;['am','pm'].forEach(w=>cfg[w].forEach(r=>{if(r[0]==='insulin')r[1]=+v}))}
+    if(id==='sInsulin'){
+      // a real dose change goes in the log, so the insulin-per-day steps have a reason beside them
+      const old=cfg.insulin;if(+v>0&&+v!==+old)add('dose',+v,'was '+old);
+      cfg.insulin=+v;['am','pm'].forEach(w=>cfg[w].forEach(r=>{if(r[0]==='insulin')r[1]=+v}))}
     if(id==='sAm')cfg.amTime=v; if(id==='sPm')cfg.pmTime=v; if(id==='sGap')cfg.gap=+v;
+    if(id==='sCarer')cfg.carer=v.trim();
     saveCfg();renderAll();toast('Saved');
   });
 });
@@ -1836,13 +1928,38 @@ function formatQtySheet(type,qty){
 /* Callers include app-open, every insulin log and the service worker, none of
    which see the disabled button; overlapping runs push the same rows twice.
    A request made mid-sync runs once more after, so a fresh entry still goes. */
-let syncBusy=false,syncAgain=false;
+let syncBusy=false,syncAgain=false,fixWarned=false,autoAt=0,syncQuiet=false;
+/* Another carer may have dosed since this phone last looked: catch up on open
+   and on coming back to the foreground. Silent when sync isn't set up. */
+function autoSync(){if(cfg.syncUrl&&cfg.syncKey&&Date.now()-Math.max(+new Date(cfg.lastSync||0),autoAt)>=12e4){autoAt=Date.now();syncQuiet=true;syncNow()}}
+/* Pull: sheet rows with no local copy, minus rows deleted here (tomb). */
+function syncPull(rows,localKeys,tomb){
+  return rows.filter(sp=>{if(localKeys.has(sp.key)||tomb[tombKey(sp.key)])return false;localKeys.add(sp.key);return true});
+}
+/* Push: local entries the sheet didn't return, within the window it reads. Not
+   filtered by tomb: a key re-logged after a delete has to go back up. */
+function syncPush(entries,sheetKeys,cutoff){return entries.filter(e=>e.date>=cutoff&&!sheetKeys.has(keyOf(e)))}
+/* The script's tombstones: rows deleted on any phone. Drop the local copy and
+   remember the key so the pull doesn't bring it back, unless this phone has
+   re-logged the key since (relog), which the push then revives. */
+function applyTombs(tombs){
+  const keep=new Set(entries.filter(e=>e.relog).map(e=>tombKey(keyOf(e)))),dead=new Set();
+  cfg.tomb=cfg.tomb||{};
+  (tombs||[]).forEach(t=>{
+    const t24=t.date&&to24h(String(t.time||''));if(!t24)return;
+    const k=tombKey(`${isoFromDmy(t.date)}|${t24}|${t.type}`); // the script echoes the text this app sent, lowercased
+    if(!keep.has(k)){dead.add(k);cfg.tomb[k]=isoFromDmy(t.date)}
+  });
+  const n=entries.length;entries=entries.filter(e=>!dead.has(tombKey(keyOf(e))));
+  return n-entries.length;
+}
 async function syncNow(){
   if(syncBusy){syncAgain=true;return}
   syncBusy=true;
   try{await syncOnce()}finally{syncBusy=false;if(syncAgain){syncAgain=false;syncNow()}}
 }
 async function syncOnce(){
+  const quiet=syncQuiet;syncQuiet=false;
   const url=cfg.syncUrl, key=cfg.syncKey;
   if(!url||!key){toast('Add your Web App URL and secret first');return}
   const btn=document.getElementById('syncBtn'), fab=document.getElementById('floatSync');
@@ -1853,9 +1970,13 @@ async function syncOnce(){
     // the 30-day window, and gets Apps Script's full 6 minutes to do it.
     const full=!entries.length;
     const listData=await fetchJson(`${url}?action=list&secret=${encodeURIComponent(key)}${full?'&days=0':''}`,{},full?360000:120000);
-    if(listData.error){toast('Sync failed: '+syncErr(listData.error));return}
-    if(full&&listData.days!==0){toast('Only the last 30 days came back: the script needs the new doGet and a redeploy');return}
+    if(listData.error){toast('Sync failed: '+syncErr(listData.error),0,1);return}
+    if(full&&listData.days!==0){toast('Only the last 30 days came back: the script needs the new doGet and a redeploy',0,1);return}
     const sheetRows=listData.rows||[];
+    const removed=applyTombs(listData.tomb);
+    const old=isoBack(31),q=fixQueue(),live=t=>isoFromDmy(t.date)>=old;
+    Object.keys(cfg.tomb).forEach(k=>{if(cfg.tomb[k]<old)delete cfg.tomb[k]});
+    q.del=q.del.filter(live);q.upd=q.upd.filter(live);
 
     // pull stock baselines too: the Stock tab is a mirror of whichever device
     // last synced, so a refill entered on one device only reaches the others
@@ -1886,13 +2007,13 @@ async function syncOnce(){
     // local -> key set (srcType preserves the original sheet type text for
     // rows pulled in as 'note' because their type wasn't recognized, so the
     // key still matches the sheet on future syncs instead of re-pulling forever)
-    const keyOf=e=>`${e.date}|${e.time}|${e.srcType||(T[e.type]?T[e.type].n:e.type)}`;
     const localKeys=new Set(entries.map(keyOf));
+    // a re-logged key that is live on the sheet again needs no more protecting
+    entries.forEach(e=>{if(e.relog&&sheetKeys.has(keyOf(e)))delete e.relog});
 
     // pull: sheet rows missing locally
     let pulled=0;
-    sheetParsed.forEach(sp=>{
-      if(localKeys.has(sp.key))return;
+    syncPull(sheetParsed,localKeys,cfg.tomb).forEach(sp=>{
       if(sp.typeKey){
         const{qty,extra}=extractQty(sp.qty,T[sp.typeKey].u);
         const note=extra?(sp.notes?`${sp.notes} — ${extra}`:extra):(sp.notes||'');
@@ -1902,36 +2023,44 @@ async function syncOnce(){
         const noteText=`${sp.rawType}${sp.notes?': '+sp.notes:''}${sp.qty?' ('+sp.qty+')':''}`;
         entries.push({id:uid(),date:sp.dateIso,time:sp.time24,type:'note',qty:'',note:noteText,srcType:sp.rawType});
       }
-      localKeys.add(sp.key); // a row duplicated on the sheet comes in once
       pulled++;
     });
 
-    // push: local entries missing from sheet, within the same 30-day window the
-    // server reads — older entries aren't in sheetKeys either way, so pushing
-    // them would just duplicate rows the sheet already has outside that window
-    const cutoffIso=new Date(Date.now()-30*864e5).toISOString().slice(0,10);
-    const toPush=entries.filter(e=>e.date>=cutoffIso&&!sheetKeys.has(keyOf(e)));
-    let pushed=0;
+    // push: local entries missing from sheet, within the window the server
+    // reads (30 days back from its local midnight). Local date, a day inside it:
+    // a UTC date here once pushed day -31 as "missing" just after midnight.
+    const toPush=syncPush(entries,sheetKeys,isoBack(29));
+    let pushed=0,pushErr='',fixMsg='';
     if(toPush.length){
       // audioId intentionally not included — stays local
-      const rows=toPush.slice().sort((a,b)=>(a.date+a.time)<(b.date+b.time)?-1:1).map(e=>({
-        date:dmyFromIso(e.date), time:fmt12(e.time), type:e.srcType||(T[e.type]?T[e.type].n:e.type),
-        qty:formatQtySheet(e.type,e.qty), notes:e.note||''
-      }));
+      const rows=toPush.slice().sort((a,b)=>(a.date+a.time)<(b.date+b.time)?-1:1).map(e=>
+        Object.assign(tripleOf(e),{qty:formatQtySheet(e.type,e.qty),notes:sheetNote(e)}));
       const postData=await fetchJson(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
         body:JSON.stringify({secret:key,action:'append',rows})});
-      if(postData.error){toast('Push failed: '+syncErr(postData.error))}
-      else pushed=postData.added||rows.length;
+      if(postData.error)pushErr=postData.error;
+      else{pushed=postData.added||rows.length;toPush.forEach(e=>delete e.relog)}
     }
 
-    if(pulled)await save();
+    // deletes and edits; an old deployment keeps the queue for after its redeploy
+    const sent={del:q.del.slice(),upd:q.upd.slice()};
+    if(!pushErr&&(sent.del.length||sent.upd.length)){
+      const d=await fetchJson(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+        body:JSON.stringify({secret:key,action:'fix',del:sent.del,upd:sent.upd})});
+      if(d.error){if(d.error!=='unknown action'||!fixWarned)fixMsg='Deletes and edits not sent: '+syncErr(d.error);if(d.error==='unknown action')fixWarned=true}
+      else{const f=fixQueue();f.del=f.del.filter(x=>!sent.del.includes(x));f.upd=f.upd.filter(x=>!sent.upd.includes(x))}
+    }
+
+    await save();await saveCfg();
     await pushStock(true);          // keeps the sheet's Stock tab in step
+    renderAll();
+    if(pushErr){toast('Push failed: '+syncErr(pushErr),0,1);registerSyncRetry();return}
     cfg.lastSync=new Date().toISOString();await saveCfg();
     document.getElementById('syncStatus').textContent=`Last synced ${new Date(cfg.lastSync).toLocaleString()}`;
-    renderAll();
-    toast(`Synced — ${pushed} pushed, ${pulled} pulled`);
+    renderSyncFab();
+    // an automatic catch-up only speaks up when something moved
+    if(fixMsg||pushed||pulled||removed||!quiet)toast(fixMsg||`Synced — ${pushed} pushed, ${pulled} pulled${removed?`, ${removed} deleted`:''}`,0,1);
   }catch(err){
-    toast('Sync error: '+(err&&err.message?err.message:err));
+    toast('Sync error: '+(err&&err.message?err.message:err),0,1);
     registerSyncRetry();
   }finally{
     btn.textContent='Sync with Google Sheet';btn.disabled=false;
@@ -1965,12 +2094,22 @@ function openLog(entry,preset){
   sheetPhotos=entry&&entry.photos?entry.photos.map(ph=>({id:ph.id,cap:ph.cap||''})):[];
   renderSheetPhotos();
   sel.onchange=()=>{const t=T[sel.value];document.getElementById('fUnit').value=t.u;document.getElementById('fQty').value=sel.value==='insulin'?cfg.insulin:t.d};
-  document.getElementById('scrim').classList.add('on');
-  document.getElementById('sheet').classList.add('on');
+  openSheet('sheet');
   document.getElementById('fQty').focus();
   document.getElementById('fQty').select();
 }
+/* Android back closes an open sheet, not the app: opening one pushes a history
+   entry (once, however many sheets stack), back pops it. sheetHist is cleared
+   before history.back(), so the popstate that follows finds nothing to do. */
+let sheetHist=false;
+function openSheet(id){
+  document.getElementById('scrim').classList.add('on');
+  document.getElementById(id).classList.add('on');
+  if(!sheetHist){sheetHist=true;history.pushState({sheet:1},'')}
+}
+addEventListener('popstate',()=>{if(sheetHist){sheetHist=false;closeSheet()}});
 function closeSheet(){
+  if(sheetHist){sheetHist=false;history.back()}
   document.getElementById('scrim').classList.remove('on');
   document.getElementById('sheet').classList.remove('on');
   document.getElementById('vetSheet').classList.remove('on');
@@ -1986,17 +2125,29 @@ function saveEntry(){
   if(!o.date||!o.time){toast('Add a date and time');return}
   if(o.type==='insulin'&&!editId&&!insulinGuardOk())return;
   if(sheetPhotos.length)o.photos=sheetPhotos.map(ph=>({id:ph.id,cap:(ph.cap||'').trim()}));
-  if(editId){const e=entries.find(x=>x.id===editId);Object.assign(e,o);if(!o.photos)delete e.photos}
-  else entries.push(Object.assign({id:uid()},o));
+  if(editId){
+    const e=entries.find(x=>x.id===editId);
+    if(!e){closeSheet();toast('That entry was deleted on another phone');return}
+    const old=Object.assign({},e);
+    if(o.type!==e.type)delete e.srcType;
+    Object.assign(e,o);if(!o.photos)delete e.photos;
+    // A new date, time or type is a new sheet row: retire the old one. Same key,
+    // new amount or note: rewrite the row in place.
+    if(keyOf(old)!==keyOf(e)){forget(old);revive(e)}
+    else if(old.qty!==e.qty||(old.note||'')!==(e.note||''))queueUpd(e);
+    saveCfg();
+  }
+  else{const e=Object.assign({id:uid()},o);if(cfg.carer)e.by=cfg.carer;entries.push(e);revive(e)}
   save();renderAll();closeSheet();sweepMedia();
   toast(editId?'Entry updated':`${T[o.type].n} logged`);
   // The script's missed-shot checker reads the sheet every 15 min; without this,
   // a shot logged but not yet manually synced looks unlogged and gets a false
-  // "not logged" email until the next sync.
-  if(o.type==='insulin'&&cfg.syncUrl&&cfg.syncKey)syncNow();
+  // "not logged" email until the next sync. An edit sends its fix queue.
+  if((editId||o.type==='insulin')&&cfg.syncUrl&&cfg.syncKey)syncNow();
 }
 function delEntry(){
-  entries=entries.filter(e=>e.id!==editId);save();renderAll();closeSheet();sweepMedia();toast('Entry deleted');
+  removeEntry(editId);renderAll();closeSheet();sweepMedia();toast('Entry deleted');
+  if(cfg.syncUrl&&cfg.syncKey)syncNow();
 }
 
 /* ---------------- data ---------------- */
@@ -2028,8 +2179,11 @@ function importJSON(ev){
     let d;
     try{d=JSON.parse(r.result)}catch(e){toast('Could not read that file');return}
     if(!Array.isArray(d.entries)){toast("That file doesn't look like a Zuse backup");return}
+    if(!confirm(`Replace all ${entries.length} entries on this phone with the ${d.entries.length} in this backup?`))return;
     // Entries land first: one undecodable photo must not cost the whole log.
-    entries=d.entries;if(d.cfg)cfg=Object.assign(cfg,d.cfg);
+    // The carer name belongs to this phone, not to whichever phone made the backup.
+    const carer=cfg.carer;
+    entries=d.entries;if(d.cfg)cfg=Object.assign(cfg,d.cfg);cfg.carer=carer;
     await save();await saveCfg();
     photoUrls.forEach(u=>URL.revokeObjectURL(u));photoUrls.clear();
     renderAll();
@@ -2097,7 +2251,6 @@ function renderSyncFab(){
   el.textContent=d?`${pad(d.getHours())}:${pad(d.getMinutes())}`:'';
 }
 function renderAll(){
-  dayOffset=0;
   sortEntries();renderRing();renderChecks();renderToday();renderGlance();renderRoutineCards();renderStockWarn();renderSyncFab();
   if(document.getElementById('v-hist').classList.contains('on')){renderFilters();renderHist()}
   if(document.getElementById('v-trend').classList.contains('on'))renderCharts();
@@ -2126,6 +2279,9 @@ function tick(){
     });
   }
   sweepMedia();
+  autoSync();
+  // ask the browser not to evict the log and photos under storage pressure
+  try{navigator.storage?.persist?.()}catch(e){}
 })();
 async function registerPeriodicSync(reg){
   if(!('periodicSync'in reg))return;

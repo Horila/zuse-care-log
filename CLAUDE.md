@@ -12,8 +12,8 @@ and the tests use only Node's stdlib `assert`.
 ## Commands
 
 ```
-node test-logic.js    # pure logic lifted out of zuse-care-log.html (142 checks)
-node test-sync.js     # the Apps Script backend under stubbed Google services (236 checks)
+node test-logic.js    # pure logic lifted out of zuse-care-log.html (188 checks)
+node test-sync.js     # the Apps Script backend under stubbed Google services (324 checks)
 ```
 
 There is no single-test flag. Both files are flat scripts — comment out blocks
@@ -96,7 +96,7 @@ Nothing enforces these across the app/script boundary; a mismatch is silent.
 
 | App (`zuse-care-log.html`) | Script (`zuse-sync-code.gs.txt`) | Keyed by |
 |---|---|---|
-| `TYPE_ALIASES` | `KNOWN_TYPES` | sheet type text |
+| `TYPE_ALIASES` | `KNOWN_TYPES` (`dose change` also in `NOT_A_TOTAL`) | sheet type text |
 | `LOW_LEFT` | `STOCK_LOW_LEFT` | display name (`Insulin`) |
 | `PER_SHOT` | `STOCK_PER_ROW` | display name (`Syringes`) |
 | `LOW_DAYS` | `STOCK_LOW_DAYS` | — |
@@ -131,7 +131,10 @@ needed, since it only changes what the app displays, not what gets emailed.
   `doGet` path, including `writeStockTab_` and `readStockTab_`, runs from the
   *deployed* version and needs the redeploy even when no action is added. Skip it
   and nothing errors: the old code keeps writing the old columns, silently.
-- `doPost` actions: `append`, `report`, `stock`, `skipVetOrder`. `doGet`: `list`.
+- `doPost` actions: `append`, `report`, `stock`, `skipVetOrder`, `fix`. `doGet`: `list`.
+  `doGet` is a one-liner calling `handleGet_`, which lives below the REPLACE cut
+  line; a script from before that needs its `doGet` swapped by hand once, or
+  `list` never returns `tomb` (nothing errors, deletes just never spread).
 
 ## Sync protocol
 
@@ -142,6 +145,25 @@ times, so `isoFromDmy`/`dmyFromIso` and `to24h`/`fmt12` sit on every boundary.
 A sheet row whose type the app doesn't recognise is pulled in as a `note` with
 `srcType` set to the original text — that keeps its key matching the sheet, so
 it isn't re-pulled on every sync.
+
+Deletes and edits: `removeEntry`/`saveEntry` record the old key in `cfg.tomb`
+(lowercased `tombKey` → entry date, pruned after 31 days) so the pull skips it,
+and queue a sheet triple (`tripleOf`) in `cfg.fixQ` — `del` for a delete or a
+key-changing edit, `upd` for a same-key qty/note edit. The next sync sends the
+queue as `fix`; the script clears that row's TYPE/QTY/NOTES (never the row, so
+carry-forward dates hold) and keeps a `tomb:` Script Property that `list`
+returns as `tomb` (keyed on the lowercased type text the app sent, not
+`canonType_`, so a `srcType` note still matches), which `applyTombs` uses to
+drop the entry on other phones. A `srcType` note never sends `upd`: its qty sits
+inside the composed note.
+Re-logging a key lifts its tombstone (`revive`). An old deployment answering
+`unknown action` keeps the queue. Ceiling: two same-type entries in one minute
+share a key.
+
+Who logged it: `cfg.carer` (per device, kept across a backup restore) becomes
+`e.by` on new entries, and `sheetNote` appends it to the pushed NOTES as
+`note · NAME` — one helper for both the `append` rows and `fixQ.upd`, so they
+agree. `carerOf` reads it back for the double-dose guard.
 
 ## The type table `T`
 
@@ -212,7 +234,7 @@ recordings from the removed vet-audio feature stay readable.
 
 ## Layout of zuse-care-log.html
 
-One ~2120-line file: styles 13–208, markup 210–554, script 555–2121.
+One ~2297-line file: styles 13–210, markup 212–556, script 557–2295.
 
 ## Other files at the root
 

@@ -41,8 +41,11 @@ const T = { insulin: { n: 'Insulin', i: '💉', u: 'units' }, food: { n: 'Canned
             pee: { n: 'Pee accident', i: '💦', u: '' }, urine: { n: 'Urine test', i: '🧪', u: '' },
             para: { n: 'Paracetamol', u: 'tablets' }, synulox: { n: 'Synulox 250mg', u: 'tablets' },
             samylin: { n: 'Samylin', u: 'tablets' }, cerenia: { n: 'Cerenia 24mg', u: 'tablets' },
-            syringe: { n: 'Syringes', i: '💉', u: 'syringes', s: 1 } };
+            syringe: { n: 'Syringes', i: '💉', u: 'syringes', s: 1 },
+            dose: { n: 'Dose change', i: '📈', u: 'units' } };
 const esc = s => String(s);
+// The real TYPE_ALIASES spans lines, so grabConst can't lift it; a few entries do.
+const TYPE_ALIASES = { 'insulin': 'insulin', 'canned food': 'food', 'dose change': 'dose' };
 
 const code = [
   grabConst('HOME_RADIUS'), grabConst('LOW_DAYS'), grabConst('LOW_DAYS_OVERRIDE'),
@@ -55,15 +58,22 @@ const code = [
   grabConst('isLowStock'), grab('lowStock'), grab('stockLabel'),
   grab('series'), grab('vetSummary'),
   grabConst('syncErr'),
+  grabConst('LOGGABLE'), grab('ts'), grab('isoFromDmy'), grab('to24h'), grab('typeKeyFromSheetType'),
+  grab('keyOf'), grab('tombKey'), grab('syncPull'), grab('syncPush'), grab('applyTombs'),
+  grab('routineWin'), grab('currentRoutine'), grab('routineDone'),
+  grab('dmyFromIso'), grab('fmt12'), grab('formatQtySheet'), grab('tripleOf'), grabConst('rowOf'),
+  grab('sheetNote'), grab('carerOf'),
+  grab('fixQueue'), grab('queueUpd'), grab('forget'), grab('revive'),
 ].join('\n');
 
 // The extracted code reads free variables `entries` and `cfg`; bind them by
 // declaring them inside the same function scope.
-const api = new Function('T', 'esc',
-  'let entries=[],cfg={gap:12,stock:{}},stockWin=14;\n' + code +
+const api = new Function('T', 'esc', 'TYPE_ALIASES',
+  'let entries=[],cfg={gap:12,stock:{}},stockWin=14;const saveCfg=()=>{};\n' + code +
   '\nreturn {shouldAutoEnd,haversine,usedSince,rateOver,dailyUse,stockLeft,stockDetail,' +
-  'trackedStock,mergeStockRow,lowStock,stockLabel,series,vetSummary,syncErr,' +
-  'setWin:w=>{stockWin=w},setState:(e,c)=>{entries=e;cfg=c}};')(T, esc);
+  'trackedStock,mergeStockRow,lowStock,stockLabel,series,vetSummary,syncErr,isoBack,' +
+  'syncPull,syncPush,applyTombs,currentRoutine,routineDone,forget,revive,queueUpd,sheetNote,carerOf,typeKeyFromSheetType,' +
+  'setWin:w=>{stockWin=w},setState:(e,c)=>{entries=e;cfg=c},getState:()=>({entries,cfg})};')(T, esc, TYPE_ALIASES);
 
 const DAY = 864e5;
 const dayAgo = n => {
@@ -488,5 +498,148 @@ eq(/\bAudioStore\b/.test(js), false, 'no dangling AudioStore references after th
   eq(api.syncErr('unauthorized'), 'unauthorized', 'any other error is left alone');
   ok(api.syncErr('unknown action').length > 90, 'and is long enough to get the 9s toast');
 }
+
+/* ---- sync: the push window is a local date ---- */
+{
+  // 00:30 local on 1 July. The server reads from local midnight 30 days back
+  // (1 June), so the push must start no earlier than that. The old UTC date,
+  // taken at 00:30 BST, was still 30 June and reached back to 31 May: rows the
+  // server never returned, pushed again as "missing" every sync in that hour.
+  const now = new Date(2026, 6, 1, 0, 30);
+  const cut = api.isoBack(29, now);
+  eq(cut, '2026-06-02', 'the cutoff is the local date, a day inside the server window');
+  const e = [{ date: '2026-05-31', time: '23:50', type: 'walk' }, { date: '2026-06-01', time: '00:10', type: 'walk' },
+             { date: '2026-06-02', time: '00:10', type: 'walk' }, { date: '2026-07-01', time: '00:05', type: 'insulin' },
+             { date: '2026-07-01', time: '00:20', type: 'food' }];
+  const sheet = new Set(['2026-07-01|00:20|Canned Food']);
+  eq(api.syncPush(e, sheet, cut).map(x => x.date + ' ' + x.time).join(','), '2026-06-02 00:10,2026-07-01 00:05',
+     'pushes only in-window entries the sheet did not return');
+}
+
+/* ---- sync: tombstones ---- */
+{
+  // Rows deleted here are not pulled straight back; a duplicated sheet row still comes in once.
+  const rows = [{ key: '2026-07-01|11:30|Insulin' }, { key: '2026-07-01|11:30|Canned Food' },
+                { key: '2026-07-01|11:30|Canned Food' }, { key: '2026-07-01|09:00|Old Med  💊' },
+                { key: '2026-07-01|23:40|Insulin' }];
+  const pulled = api.syncPull(rows, new Set(['2026-07-01|11:30|Insulin']),
+    { '2026-07-01|09:00|old med': '2026-07-01', '2026-07-01|23:40|insulin': '2026-07-01' });
+  eq(pulled.map(r => r.key).join(','), '2026-07-01|11:30|Canned Food', 'tombstoned keys are skipped, case and emoji aside');
+}
+{
+  // The script's tombstones arrive as sheet triples (type text lowercased, as
+  // sent). They drop the local copy, except one this phone re-logged.
+  api.setState([
+    { id: 'a', date: '2026-07-01', time: '23:40', type: 'insulin', qty: 8 },
+    { id: 'b', date: '2026-07-01', time: '09:00', type: 'note', srcType: 'Old  Med 💊' },
+    { id: 'c', date: '2026-07-01', time: '11:30', type: 'food', qty: 2 },
+    { id: 'd', date: '2026-07-02', time: '11:30', type: 'food', qty: 2, relog: 1 },
+  ], {});
+  const n = api.applyTombs([{ date: '01/07/2026', time: '11:40 pm', type: 'Insulin' },
+                            { date: '01/07/2026', time: '9:00 am', type: 'old med' },
+                            { date: '02/07/2026', time: '11:30 am', type: 'Canned Food' },
+                            { date: '', time: '11:30 am', type: 'Walk' }]);
+  const st = api.getState();
+  eq(n, 2, 'a known and an unknown type are both matched');
+  eq(st.entries.map(e => e.id).join(','), 'c,d', 'leaving the untouched entry and the re-logged one');
+  eq(Object.keys(st.cfg.tomb).sort().join(','), '2026-07-01|09:00|old med,2026-07-01|23:40|insulin',
+     'the dropped keys are remembered so the pull skips them');
+  eq(api.syncPull([{ key: '2026-07-01|23:40|Insulin' }], new Set(), st.cfg.tomb).length, 0,
+     'and the sheet row is not pulled back in the same sync');
+  api.setState([{ id: 'x', date: '2026-07-01', time: '11:30', type: 'food' }], {});
+  eq(api.applyTombs(undefined), 0, 'an old script with no tomb field changes nothing');
+  // An alias only the script knows ("Treats" -> "Treat") comes back as the text the app sent.
+  api.setState([{ id: 't', date: '2026-07-01', time: '08:00', type: 'note', srcType: 'Treats' }], {});
+  eq(api.applyTombs([{ date: '01/07/2026', time: '8:00 am', type: 'treats' }]), 1, 'a srcType note matches its own tomb');
+  // Emoji before the type, and an alias the app knows only without its emoji.
+  api.setState([{ id: 'p', date: '2026-07-01', time: '08:00', type: 'note', srcType: '💉 Insulin' },
+                { id: 'f', date: '2026-07-01', time: '09:00', type: 'note', srcType: 'Fleeing 🐛' }], {});
+  eq(api.applyTombs([{ date: '01/07/2026', time: '8:00 am', type: 'insulin' },
+                     { date: '01/07/2026', time: '9:00 am', type: 'fleeing' }]), 2, 'decorated srcType notes match their tombs');
+  eq(api.syncPull([{ key: '2026-07-01|08:00|💉 Insulin' }], new Set(), api.getState().cfg.tomb).length, 0,
+     'and the decorated sheet row is not pulled back');
+}
+{
+  // A pulled unknown-type row keeps its sheet qty inside a composed note; an
+  // update would blank QTY and overwrite NOTES with that composite, so none is sent.
+  const c = { syncUrl: 'u', syncKey: 'k' };
+  api.setState([], c);
+  api.queueUpd({ id: 's', date: '2026-07-01', time: '08:00', type: 'note', qty: '', note: 'Treats: x (2)', srcType: 'Treats' });
+  eq(c.fixQ ? c.fixQ.upd.length : 0, 0, 'no update is queued for a srcType note');
+}
+
+{
+  // Delete, then re-log the same minute before any sync: the row is still on
+  // the sheet, so the queued delete becomes an update of it.
+  const c = { syncUrl: 'u', syncKey: 'k' };
+  const old = { id: 'a', date: '2026-07-01', time: '23:40', type: 'insulin', qty: 8, note: '' };
+  api.setState([], c);
+  api.forget(old);
+  eq(c.fixQ.del.length, 1, 'a delete is queued for the sheet');
+  eq(c.fixQ.del[0].time, '11:40 pm', 'as the sheet triple the push sends');
+  eq(c.tomb['2026-07-01|23:40|insulin'], '2026-07-01', 'and tombstoned locally');
+  const neu = { id: 'b', date: '2026-07-01', time: '23:40', type: 'insulin', qty: 6, note: '' };
+  api.revive(neu);
+  eq(c.fixQ.del.length, 0, 're-logging cancels the queued delete');
+  eq(c.fixQ.upd.map(u => u.qty).join(), '6 Units', 'and rewrites the row with the new amount');
+  eq('2026-07-01|23:40|insulin' in c.tomb, false, 'the tombstone is lifted');
+  eq(neu.relog, 1, "and the entry ignores the script's tombstone until it is pushed");
+  api.queueUpd(Object.assign({}, neu, { qty: 7 }));
+  eq(c.fixQ.upd.map(u => u.qty).join(), '7 Units', 'a second edit replaces the first');
+  api.forget(neu);
+  eq(c.fixQ.upd.length + ':' + c.fixQ.del.length, '0:1', 'and a delete drops pending edits of that row');
+  api.forget(neu);
+  eq(c.fixQ.del.length, 1, 'deleting twice queues once');
+  const off = {};
+  api.setState([], off);
+  api.forget(old);
+  eq(off.fixQ, undefined, 'without sync set up nothing is queued');
+}
+
+/* ---- UTC calendar dates are gone from the app ---- */
+eq(/toISOString\(\)\.slice\(0,\s*10\)/.test(js), false, 'no UTC date where a local calendar date is meant');
+
+/* ---- routine checklist across midnight ---- */
+{
+  // Morning round 08:00-19:00, night round 19:00 to 08:00 the next day.
+  const c = { amTime: '11:30', pmTime: '23:30', am: [['food', 2], ['insulin', 8]], pm: [['food', 2], ['insulin', 8]] };
+  const at = (d, h, m) => new Date(2026, 6, d, h, m);
+  const round = (date, time) => [{ date, time, type: 'food' }, { date, time, type: 'insulin' }];
+  api.setState(round('2026-07-14', '19:45'), c);
+  eq(api.currentRoutine(at(14, 19, 45)), 'pm', '19:45 is the night round');
+  eq(api.routineDone('pm', at(14, 19, 45)).join(), 'true,true', 'an early night round counts');
+  api.setState(round('2026-07-14', '23:40'), c);
+  eq(api.currentRoutine(at(15, 0, 10)), 'pm', '00:10 is still the same night');
+  eq(api.routineDone('pm', at(15, 0, 10)).join(), 'true,true', 'a round at 23:40 still counts at 00:10');
+  eq(api.routineDone('pm', at(15, 10, 0)).join(), 'true,true', 'a stale night button next morning sees the night just gone');
+  api.setState(round('2026-07-15', '00:05'), c);
+  eq(api.routineDone('pm', at(15, 23, 30)).join(), 'false,false', 'a round at 00:05 does not count for the next night');
+  eq(api.currentRoutine(at(15, 7, 59)), 'pm', '07:59 is the night round');
+  eq(api.currentRoutine(at(15, 8, 0)), 'am', '08:00 opens the morning');
+  api.setState(round('2026-07-14', '11:30'), c);
+  eq(api.routineDone('am', at(15, 11, 0)).join(), 'false,false', "yesterday's morning is not today's");
+  eq(api.routineDone('am', at(14, 18, 59)).join(), 'true,true', 'but counts all its own day');
+}
+
+/* ---- who logged it: the carer rides on the pushed note ---- */
+{
+  eq(api.sheetNote({ note: 'fresh bottle', by: 'R' }), 'fresh bottle · R', 'a carer is appended to the note');
+  eq(api.sheetNote({ note: '', by: 'R' }), '· R', 'and stands alone on an empty one');
+  eq(api.sheetNote({ note: 'fresh bottle' }), 'fresh bottle', 'no carer, note unchanged');
+  eq(api.sheetNote({}), '', 'nothing at all is blank');
+  for (const e of [{ note: 'fresh bottle', by: 'Ruth Ann' }, { note: '', by: 'R' }])
+    eq(api.carerOf({ note: api.sheetNote(e) }), e.by, `a pulled note gives the carer back (${JSON.stringify(e.note)})`);
+  eq(api.carerOf({ note: 'x', by: 'H' }), 'H', 'a local entry names its own carer');
+  eq(api.carerOf({ note: 'fresh bottle' }), '', 'a plain note names nobody');
+  const c = { syncUrl: 'u', syncKey: 'k' };
+  api.setState([], c);
+  api.queueUpd({ date: '2026-07-01', time: '23:40', type: 'insulin', qty: 8, note: 'x', by: 'R' });
+  eq(c.fixQ.upd[0].notes, 'x · R', 'an edit rewrites the row with the same note the push sent');
+  eq((js.match(/notes:sheetNote\(e\)/g) || []).length, 2, 'the push and the fix queue share one note helper');
+}
+
+/* ---- dose history type ---- */
+eq(api.typeKeyFromSheetType('Dose change'), 'dose', 'a dose change row comes back as a dose');
+eq(api.typeKeyFromSheetType('Insulin'), 'insulin', 'and insulin is still insulin');
 
 console.log(`\n  ${passed} checks passed\n`);
