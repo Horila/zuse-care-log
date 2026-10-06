@@ -1515,6 +1515,8 @@ async function fetchJson(u,o,ms=40000){
   try{
     const r=await fetch(u,{...o,signal:ac.signal});
     const x=await r.text();
+    // Google's 404 is "no web app at this URL": a deleted/archived deployment, or a "New deployment" that moved it.
+    if(r.status===404)throw new Error('no web app at the Sync URL. In the script: Deploy → Manage deployments, copy the Web app URL of the active deployment into Setup → Web App URL. To update code later, use the pencil → New version, never "New deployment".');
     try{return JSON.parse(x)}catch(e){throw new Error(`web app didn't return JSON (HTTP ${r.status}): ${x.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,160)}`)}
   }catch(e){throw e.name==='AbortError'?new Error('Google took too long, will retry'):e}
   finally{clearTimeout(t)}
