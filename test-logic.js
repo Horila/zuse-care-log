@@ -54,7 +54,7 @@ const code = [
   grab('shouldAutoEnd'), grab('haversine'),
   grabConst('BOTTLE'), grabConst('LOW_LEFT'), grabConst('PER_SHOT'), grabConst('FIXED_RATE'), grabConst('isoBack'),
   grab('usedSince'), grab('rateOver'), grab('dailyUse'),
-  grab('stockLeft'), grab('stockDetail'), grab('trackedStock'), grab('mergeStockRow'),
+  grab('stockLeft'), grab('stockDetail'), grab('trackedStock'), grab('stockSame'), grab('mergeStockRow'),
   grabConst('isLowStock'), grab('lowStock'), grab('stockLabel'),
   grab('series'), grab('vetSummary'),
   grabConst('syncErr'),
@@ -71,7 +71,7 @@ const code = [
 const api = new Function('T', 'esc', 'TYPE_ALIASES',
   'let entries=[],cfg={gap:12,stock:{}},stockWin=14;const saveCfg=()=>{};\n' + code +
   '\nreturn {shouldAutoEnd,haversine,usedSince,rateOver,dailyUse,stockLeft,stockDetail,' +
-  'trackedStock,mergeStockRow,lowStock,stockLabel,series,vetSummary,syncErr,isoBack,' +
+  'trackedStock,stockSame,mergeStockRow,lowStock,stockLabel,series,vetSummary,syncErr,isoBack,' +
   'syncPull,syncPush,applyTombs,currentRoutine,routineDone,forget,revive,queueUpd,sheetNote,carerOf,typeKeyFromSheetType,' +
   'setWin:w=>{stockWin=w},setState:(e,c)=>{entries=e;cfg=c},getState:()=>({entries,cfg})};')(T, esc, TYPE_ALIASES);
 
@@ -180,6 +180,18 @@ ok(Math.abs(api.haversine(51.5, -0.12, 51.5, -0.12)) < 1e-6, 'zero distance to s
   api.setState([], { gap: 12, stock: { pred: { qty: 20, since: dayAgo(0), perDay: 3 } } });
   eq(api.lowStock().length, 1, 'the same amount at a typed 3 a day is');
   eq(api.lowStock()[0].days, 6, 'with the days the box implies');
+}
+{
+  // A sync skips the stock push when the tab already holds the same items.
+  const it = [{ name: 'Insulin', qty: 800, unit: 'units', since: '01/10/2026', perDay: 0 },
+              { name: 'Syringes', qty: 50, unit: 'syringes', since: '02/10/2026', perDay: 2 }];
+  const tab = [{ name: 'Syringes', qty: 50, unit: 'syringes', since: '02/10/2026', perDay: 2 },
+               { name: 'Insulin', qty: 800, unit: 'units', since: '01/10/2026', perDay: 0 }];
+  eq(api.stockSame(it, tab), true, 'the same items in any order need no push');
+  eq(api.stockSame(it, [tab[0]]), false, 'an item missing from the tab does');
+  eq(api.stockSame([it[0]], tab), false, 'and so does one no longer tracked');
+  eq(api.stockSame(it, [tab[0], Object.assign({}, tab[1], { qty: 400 })]), false, 'a changed amount does');
+  eq(api.stockSame(it, undefined), false, 'an old deployment with no stock in list does');
 }
 {
   // Merging a Stock-tab row with the local baseline.

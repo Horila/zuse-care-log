@@ -1329,6 +1329,12 @@ function stockDetail(type){
 function trackedStock(){
   return Object.keys(cfg.stock||{}).filter(t=>T[t]);
 }
+/* Items about to be pushed against the Stock tab as `list` read it back. Same
+   set, compared in the form the script returns: blank PER DAY reads as 0. */
+function stockSame(items,rows){
+  const f=x=>[x.name,+x.qty||0,String(x.unit||'').trim(),x.since,+x.perDay>0?+x.perDay:0].join('|');
+  return items.map(f).sort().join('\n')===(rows||[]).map(f).sort().join('\n');
+}
 /* One Stock-tab row against the local baseline: the newer `since` wins the
    amount, a per-day figure on the sheet wins the rate, blank keeps ours. The
    exception is an edit the sheet has not acknowledged yet (`pdDirty`, cleared by
@@ -1525,25 +1531,30 @@ const syncErr=e=>e!=='unknown action'?e:'the Apps Script deployment is older tha
 
 /* Stock lives in the app, but the reminder has to run on Google's clock, so the
    levels are mirrored onto a Stock tab of the sheet. Silent on sync: an older
-   deployment answers "unknown action" and that must not look like a failure. */
-async function pushStock(silent){
+   deployment answers "unknown action" and that must not look like a failure.
+   `sheet` is the Stock tab as `list` just read it: when that already holds these
+   items and the shot times went up last time, the round trip is skipped. */
+async function pushStock(silent,sheet){
   const url=cfg.syncUrl,key=cfg.syncKey;
   if(!url||!key){if(!silent)toast('Set the sync URL and secret in Setup first');return}
   const keys=trackedStock();
   const items=keys.map(t=>({
     name:T[t].n, qty:+cfg.stock[t].qty||0, unit:T[t].u||'', since:dmyFromIso(cfg.stock[t].since), perDay:+cfg.stock[t].perDay||0}));
+  // Acknowledged: the sheet holds the figure that was sent. Only clear the
+  // flag where it is still the figure on screen, or a later edit would lose it.
+  const ack=()=>{
+    let cleared=0;
+    keys.forEach((t,i)=>{const s=cfg.stock[t];if(s&&s.pdDirty&&(+s.perDay||0)===items[i].perDay){delete s.pdDirty;cleared=1}});
+    if(cleared)saveCfg();
+  };
+  const times=`${cfg.amTime}|${cfg.pmTime}`;
+  if(sheet&&cfg.timesSent===times&&stockSame(items,sheet)){ack();return}
   const btn=document.getElementById('stockPushBtn');
   if(!silent&&btn){btn.disabled=true;btn.textContent='Sending\u2026'}
   try{
     const d=await fetchJson(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
       body:JSON.stringify({secret:key,action:'stock',items,amTime:cfg.amTime,pmTime:cfg.pmTime})});
-    if(!d.error){
-      // Acknowledged: the sheet now holds the figure that was sent. Only clear the
-      // flag where it is still the figure on screen, or a later edit would lose it.
-      let cleared=0;
-      keys.forEach((t,i)=>{const s=cfg.stock[t];if(s&&s.pdDirty&&(+s.perDay||0)===items[i].perDay){delete s.pdDirty;cleared=1}});
-      if(cleared)saveCfg();
-    }
+    if(!d.error){ack();if(cfg.timesSent!==times){cfg.timesSent=times;saveCfg()}}
     if(!silent)toast(d.error?'Stock push failed: '+syncErr(d.error):`Stock sent \u2014 ${d.saved} item${d.saved===1?'':'s'}`);
   }catch(err){
     if(!silent)toast('Stock push failed: '+(err&&err.message?err.message:err));
@@ -2053,7 +2064,7 @@ async function syncOnce(){
     }
 
     await save();await saveCfg();
-    await pushStock(true);          // keeps the sheet's Stock tab in step
+    await pushStock(true,listData.stock||[]);   // keeps the sheet's Stock tab in step, if it isn't already
     renderAll();
     if(pushErr){toast('Push failed: '+syncErr(pushErr),0,1);registerSyncRetry();return}
     cfg.lastSync=new Date().toISOString();await saveCfg();
