@@ -12,7 +12,7 @@ and the tests use only Node's stdlib `assert`.
 ## Commands
 
 ```
-node test-logic.js    # pure logic lifted out of zuse-care-log.html (188 checks)
+node test-logic.js    # pure logic lifted out of zuse-care-log.html (233 checks)
 node test-sync.js     # the Apps Script backend under stubbed Google services (324 checks)
 ```
 
@@ -174,6 +174,26 @@ type `<select>`, and the all-types tile grid.
 
 Types flagged `s:1` are **stock-only**: counted, never logged. All four pickers go
 through `LOGGABLE()`, which filters them out. `syringe` is the only one today.
+`LOGGABLE()` also drops `h:1` (a hidden custom item); `typeKeyFromSheetType`
+does not, so a hidden item's sheet rows still pull in as itself.
+
+### Custom items
+
+The user adds their own types (Log tab "+ New item", Setup → Your items) into
+`cfg.customTypes` (`{c_<slug>:{n,i,c,u,d,stk?,h?}}`), merged into `T` by
+`mergeCustomTypes()` after `load()` and after a restore. `cleanType` gates both
+the form and a backup (no `<>&"|`, colour from `COLOURS`, name needs an ASCII
+letter/digit or `tombKey` collapses it); `nameClash` rejects a built-in name or
+a `TYPE_ALIASES` key. They sync under `T[k].n` like any type.
+- The name locks once an entry uses it (a rename changes every sync key).
+- Delete only when unused (it also leaves routines and `cfg.stock`); otherwise
+  it can only be hidden, so no entry is orphaned.
+- `adoptSrcType` rewrites matching `srcType` notes to the item's exact spelling
+  on save, or a case difference re-pulls and re-pushes those rows.
+- `stk` adds it to the "+ Track stock for…" list (`STOCKABLE` plus `stk` keys).
+  Ceiling: the script's `canonType_` only knows `KNOWN_TYPES`, so
+  `stockForecast_` counts zero use for a custom item: its emails, calendar event
+  and vet reorder only see a typed per-day figure.
 
 ## The stock model
 
@@ -225,6 +245,25 @@ Two wrinkles worth knowing before touching it:
 Rates divide by a fixed window, never by "days that happen to have an entry" —
 the latter reads a twice-weekly tablet as a daily one and halves the estimate.
 
+## The Android app bridge (`window.ZuseNative`)
+
+A native Android build (`android/`, written separately) injects `ZuseNative`;
+`const NAT` is it or null, and every use is a no-op without it, so the PWA and
+the TWA are unchanged. Contract: `version`, `setPlan(json)`, `notify(id,title,body)`,
+`notifPermission`/`requestNotifPermission`, `exactAlarms`/`openExactAlarmSettings`,
+`saveFile(name,mime,text)` (returns "" or an error), `share(text)`, `openExternal(url)`.
+- `notifPlan(now)` (pure, tested) returns `[{id,at,title,body}]` for 14 days:
+  feeding reminders at `cfg.feedAm`/`feedPm` (skipped when that round is done),
+  missed-shot alerts at shot + 30 min (`notifMiss`, via `routineWin`), and the
+  10:00 alert on the day a tracked item crosses its `isLowStock` line
+  (`notifStock`). Ids are stable; the native side replaces its whole plan.
+- `pushNotifPlan()` (1s debounce) runs at the end of `renderAll`, on settings
+  changes and on becoming visible; `notifOn:false` sends an empty plan.
+  `notifyLow()` notifies an already-low item once per restock (`stock[t].notified`).
+- With `NAT`: `dl` saves through `saveFile` and toasts itself (pass the success
+  text as its 4th arg), `shareVetSummary` uses `share`, `target=_blank` links go
+  to `openExternal`, and the "Install on your phone" section is hidden.
+
 ## Storage
 
 `Store` falls back through `window.storage` → `localStorage` → an in-memory
@@ -234,7 +273,7 @@ recordings from the removed vet-audio feature stay readable.
 
 ## Layout of zuse-care-log.html
 
-One ~2297-line file: styles 13–210, markup 212–556, script 557–2295.
+One ~2574-line file: styles 13–210, markup 212–608, script 609–2572.
 
 ## Other files at the root
 
@@ -248,8 +287,9 @@ One ~2297-line file: styles 13–210, markup 212–556, script 557–2295.
 
 The user also has this site packaged as an Android app: a Trusted Web
 Activity built with PWABuilder (`io.github.horila.twa`). It wraps this same
-site. There is no separate app codebase. A change here reaches the Android
-app too, on the same push-then-cache delay as the PWA.
+site. A change here reaches the Android app too, on the same push-then-cache
+delay as the PWA. A native WebView build is being added in `android/`; see "The
+Android app bridge" above.
 
 This repo (`zuse-care-log`) is a GitHub Pages project page. It serves under
 `https://horila.github.io/zuse-care-log/`, not the domain root. Android

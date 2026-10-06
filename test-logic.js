@@ -64,6 +64,8 @@ const code = [
   grab('dmyFromIso'), grab('fmt12'), grab('formatQtySheet'), grab('tripleOf'), grabConst('rowOf'),
   grab('sheetNote'), grab('carerOf'),
   grab('fixQueue'), grab('queueUpd'), grab('forget'), grab('revive'),
+  grabConst('COLOURS'), grab('cleanType'), grab('customKey'), grab('nameClash'), grab('mergeCustomTypes'), grab('adoptSrcType'),
+  grab('notifPlan'),
 ].join('\n');
 
 // The extracted code reads free variables `entries` and `cfg`; bind them by
@@ -73,6 +75,7 @@ const api = new Function('T', 'esc', 'TYPE_ALIASES',
   '\nreturn {shouldAutoEnd,haversine,usedSince,rateOver,dailyUse,stockLeft,stockDetail,' +
   'trackedStock,stockSame,mergeStockRow,lowStock,stockLabel,series,vetSummary,syncErr,isoBack,' +
   'syncPull,syncPush,applyTombs,currentRoutine,routineDone,forget,revive,queueUpd,sheetNote,carerOf,typeKeyFromSheetType,' +
+  'LOGGABLE,keyOf,cleanType,customKey,nameClash,mergeCustomTypes,adoptSrcType,notifPlan,' +
   'setWin:w=>{stockWin=w},setState:(e,c)=>{entries=e;cfg=c},getState:()=>({entries,cfg})};')(T, esc, TYPE_ALIASES);
 
 const DAY = 864e5;
@@ -653,5 +656,95 @@ eq(/toISOString\(\)\.slice\(0,\s*10\)/.test(js), false, 'no UTC date where a loc
 /* ---- dose history type ---- */
 eq(api.typeKeyFromSheetType('Dose change'), 'dose', 'a dose change row comes back as a dose');
 eq(api.typeKeyFromSheetType('Insulin'), 'insulin', 'and insulin is still insulin');
+
+/* ---- custom item types ---- */
+{
+  eq(api.customKey('Vitamin B', {}), 'c_vitamin_b', 'a key is c_ plus a slug of the name');
+  eq(api.customKey('Vitamin B', { c_vitamin_b: 1, c_vitamin_b_2: 1 }), 'c_vitamin_b_3', 'and never reuses a taken one');
+  eq(api.customKey('💊💊', {}), 'c_item', 'an all-emoji slug falls back');
+  eq(api.cleanType({ n: '💊' }), null, 'a name needs an ASCII letter or digit (tombKey strips the rest)');
+  const t = api.cleanType({ n: ' Vit<script> | B ', i: '', c: 'red;x', u: 'ml', d: '2', stk: true });
+  eq(t.n, 'Vitscript B', 'markup and the key separator are stripped from the name');
+  eq(t.i + t.c + t.d + t.stk, '💊--med21', 'a bad colour, empty icon and text amount are normalised');
+  eq(api.cleanType({ n: 'X', d: '' }).d, '', 'an empty default amount stays empty (the form opens)');
+  ok(api.nameClash('insulin') && api.nameClash(' CANNED FOOD ') && api.nameClash('prednisolone'),
+     'a built-in name or a sheet alias is taken, whatever the case');
+  eq(api.nameClash('Vitamin B'), false, 'a new name is free');
+
+  api.setState([], { customTypes: {
+    c_vit: { n: 'MyMed', i: '🧴', c: '--food', u: 'ml', d: 5, stk: 1 },
+    insulin: { n: 'Fake' }, c_bad: { n: '<>' }, c_dup: { n: 'Insulin' } } });
+  api.mergeCustomTypes();
+  eq(T.c_vit && T.c_vit.n, 'MyMed', 'a valid custom type is merged into T');
+  eq(T.insulin.n, 'Insulin', 'a backup cannot overwrite a built-in');
+  eq('c_bad' in T || 'c_dup' in T, false, 'nor add a nameless or clashing one');
+  eq(api.nameClash('mymed', 'c_vit'), false, 'an item does not clash with itself');
+  eq(api.typeKeyFromSheetType('mymed'), 'c_vit', 'sheet rows of its name pull in as it');
+  T.c_vit.h = 1;
+  eq(api.LOGGABLE().includes('c_vit'), false, 'a hidden item leaves the pickers');
+  eq(api.typeKeyFromSheetType('MyMed'), 'c_vit', 'but its sheet rows are still its own');
+  delete T.c_vit.h;
+
+  // A row pulled as a srcType note before the item existed must not be pulled
+  // or pushed again once it does — whatever case the sheet spelled it in.
+  const note = { id: 'n', date: '2026-07-01', time: '08:00', type: 'note', qty: '', note: 'mymed (5)', srcType: 'mymed' };
+  api.setState([note], {});
+  const sheetKey = `2026-07-01|08:00|${T[api.typeKeyFromSheetType('mymed')].n}`;
+  api.adoptSrcType('MyMed');
+  eq(note.srcType, 'MyMed', 'the note adopts the item spelling');
+  eq(api.keyOf(note), sheetKey, 'so its key is the one the pull computes');
+  eq(api.syncPull([{ key: sheetKey }], new Set([api.keyOf(note)]), {}).length, 0, 'it is not pulled again');
+  eq(api.syncPush([note], new Set([sheetKey]), '2026-01-01').length, 0, 'nor pushed again');
+  delete T.c_vit;
+}
+
+/* ---- the Android app's notification plan ---- */
+{
+  const base = () => ({ amTime: '11:30', pmTime: '23:30', feedAm: '11:20', feedPm: '23:20', notifMiss: true, notifStock: true,
+                        am: [['food', 2], ['insulin', 8]], pm: [['food', 2], ['insulin', 8]], stock: {} });
+  const now = new Date(2026, 6, 14, 10, 0);
+  const ids = p => p.map(x => x.id);
+  api.setState([], base());
+  let p = api.notifPlan(now);
+  eq(p.length, 56, 'four a day for 14 days, nothing past or beyond the window');
+  eq(new Set(ids(p)).size, p.length, 'ids are unique');
+  eq(p[0].id + ' ' + p[0].at, 'feed-am-2026-07-14 ' + +new Date(2026, 6, 14, 11, 20), 'first is this morning\'s feed');
+  eq(p[0].body, 'Canned Food 2 · Insulin 8', 'the body lists the routine');
+  eq(p.find(x => x.id === 'miss-pm-2026-07-14').at, +new Date(2026, 6, 15, 0, 0), 'the night shot alert falls after midnight, under the shot\'s day');
+  ok(p.every((x, i) => !i || p[i - 1].at <= x.at), 'sorted by time');
+
+  api.setState([{ date: '2026-07-14', time: '09:50', type: 'food' }, { date: '2026-07-14', time: '09:50', type: 'insulin' }], base());
+  p = ids(api.notifPlan(now));
+  ok(!p.includes('feed-am-2026-07-14') && !p.includes('miss-am-2026-07-14'), 'a finished morning drops both its alerts');
+  ok(p.includes('feed-am-2026-07-15'), 'but not tomorrow\'s');
+  api.setState([{ date: '2026-07-14', time: '09:50', type: 'insulin' }], base());
+  p = ids(api.notifPlan(now));
+  ok(p.includes('feed-am-2026-07-14') && !p.includes('miss-am-2026-07-14'), 'a half-done round still reminds, the shot does not');
+
+  const late = new Date(2026, 6, 14, 23, 50);
+  api.setState([], base());
+  p = ids(api.notifPlan(late));
+  ok(p.includes('miss-pm-2026-07-14') && !p.includes('feed-pm-2026-07-14'), 'at 23:50 the feed is past, the missed shot is not');
+  api.setState([{ date: '2026-07-14', time: '23:40', type: 'insulin' }], base());
+  ok(!ids(api.notifPlan(late)).includes('miss-pm-2026-07-14'), 'a night shot logged before midnight cancels it');
+  api.setState([{ date: '2026-07-15', time: '00:05', type: 'insulin' }], base());
+  ok(!ids(api.notifPlan(late)).includes('miss-pm-2026-07-14'), 'and so does one logged after midnight');
+
+  api.setState([], Object.assign(base(), { notifMiss: false, am: [] }));
+  p = ids(api.notifPlan(now));
+  ok(!p.some(x => /^miss-|^feed-am/.test(x)) && p.includes('feed-pm-2026-07-14'), 'missed-shot alerts and an empty routine stay quiet');
+
+  // Stock reads the real clock (isoBack), so this half runs on today.
+  const t0 = new Date(), at10 = n => +new Date(t0.getFullYear(), t0.getMonth(), t0.getDate() + n, 10, 0);
+  const plan = stock => { api.setState([], Object.assign(base(), { notifMiss: false, am: [], pm: [], stock })); return api.notifPlan(t0); };
+  p = plan({ pred: { qty: 12, since: dayAgo(0) } });
+  eq(p.length, 1, 'one stock alert');
+  eq(p[0].id + ' ' + p[0].at, `stock-pred-${dayAgo(0)} ${at10(9)}`, 'prednisolone: 24 days at 0.5 a day crosses its 15-day line in 9');
+  ok(/time to reorder/.test(p[0].body), 'and says what to do');
+  eq(plan({ insulin: { qty: 500, since: dayAgo(0) } })[0].at, at10(6), 'insulin crosses one bottle in ceil(100/17) days');
+  eq(plan({ pred: { qty: 20, since: dayAgo(0) } }).length, 0, 'beyond 14 days is left for a later plan');
+  eq(plan({ insulin: { qty: 300, since: dayAgo(0) } }).length, 0, 'already low is told at once, not scheduled');
+  eq(plan({ synulox: { qty: 5, since: dayAgo(0) } }).length, 0, 'no rate, no prediction');
+}
 
 console.log(`\n  ${passed} checks passed\n`);

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- targetSdk 35 forces edge-to-edge on Android 15; opt out so the page isn't drawn under the status bar. -->
+    <style name="Zuse" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">#0E1419</item>
+        <item name="android:navigationBarColor">#0E1419</item>
+        <item name="android:windowBackground">@drawable/bg</item>
+        <item name="android:colorPrimaryDark">#0E1419</item>
+        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
+    </style>
+</resources>

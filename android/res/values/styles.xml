@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Zuse" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">#0E1419</item>
+        <item name="android:navigationBarColor">#0E1419</item>
+        <item name="android:windowBackground">@drawable/bg</item>
+        <item name="android:colorPrimaryDark">#0E1419</item>
+    </style>
+</resources>

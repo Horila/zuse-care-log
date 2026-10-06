@@ -1,1 +1,6 @@
 PASTE-INTO-APPS-SCRIPT.gs.txt
+
+# Android build output (android/build.sh)
+android/out/
+*.jks
+*.keystore

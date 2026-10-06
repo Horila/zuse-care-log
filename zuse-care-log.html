@@ -392,6 +392,33 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
     <div class="card" id="editPm"></div>
   </section>
   <section>
+    <div class="shead"><h2>Your items</h2></div>
+    <div class="card">
+      <div id="customList"></div>
+      <button class="btn sec" style="margin-top:4px" onclick="openTypeSheet()">+ New item</button>
+    </div>
+  </section>
+  <section>
+    <div class="shead"><h2>Phone notifications</h2></div>
+    <p class="note" id="notifNone">Phone notifications work in the Android app.</p>
+    <div class="card" id="notifCard" style="display:none">
+      <p class="note" id="notifStatus"></p>
+      <button class="btn sec" id="notifAllow" style="margin-top:9px" onclick="NAT.requestNotifPermission();setTimeout(renderNotif,4000)">Allow notifications</button>
+      <div id="notifExactBox" style="display:none">
+        <p class="note" style="margin-top:10px;color:var(--alert)">Exact alarms are off, so reminders can arrive late.</p>
+        <button class="btn sec" style="margin-top:9px" onclick="NAT.openExactAlarmSettings()">Allow exact alarms</button>
+      </div>
+      <label class="note" style="display:flex;gap:9px;align-items:center;margin:12px 0"><input type="checkbox" id="nOn" style="width:auto"> Notifications on</label>
+      <div class="two">
+        <div class="fld"><label>Feeding reminder, morning</label><input id="nFeedAm" type="time"></div>
+        <div class="fld"><label>Feeding reminder, night</label><input id="nFeedPm" type="time"></div>
+      </div>
+      <label class="note" style="display:flex;gap:9px;align-items:center;margin-bottom:9px"><input type="checkbox" id="nMiss" style="width:auto"> Alert when a shot is still not logged 30 minutes after its time</label>
+      <label class="note" style="display:flex;gap:9px;align-items:center"><input type="checkbox" id="nStock" style="width:auto"> Alert when stock is running low</label>
+      <button class="btn sec" style="margin-top:12px" onclick="testNotif()">Send a test notification</button>
+    </div>
+  </section>
+  <section>
     <div class="shead"><h2>Google Sheet sync</h2></div>
     <div class="card">
       <div class="fld"><label>Web App URL</label><input id="sSyncUrl" placeholder="https://script.google.com/macros/s/…/exec"></div>
@@ -419,7 +446,7 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
     <button class="btn dgr" style="margin-top:9px" onclick="wipe()">Delete everything</button>
     <p class="note" style="margin-top:14px">Everything stays on this phone. Nothing is uploaded. Take a backup now and then — clearing your browser data clears the log. Backups include photos, so they can get large.</p>
   </section>
-  <section>
+  <section id="installSec">
     <div class="shead"><h2>Install on your phone</h2></div>
     <p class="note">Open this file in Chrome, then <b>⋮ → Add to Home screen</b>. It opens full screen and works offline — the last version you loaded is cached, and an update lands the next time you open it with signal.</p>
   </section>
@@ -523,6 +550,9 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
   <h3 style="margin-top:14px">Logging</h3>
   <p class="note">Insulin, food, medication (Samylin, Prednisolone, Paracetamol, Synulox, Cerenia and more), walks, treats, bathroom and tummy-trouble notes, weight, glucose and urine test readings, vet visits, and free-text notes for anything else. The Today screen has one-tap quick-log buttons for the routine ones; <b>Custom entry</b> opens a full form with amount, date/time, notes and photos for everything else.</p>
 
+  <h3>Your own items</h3>
+  <p class="note">Log tab → <b>+ New item</b> adds anything else you give him (a new medication, say) with its own icon, unit, default amount and colour, and can track its stock. Setup → Your items edits them.</p>
+
   <h3>Routines</h3>
   <p class="note">Morning and night routines (Setup → Morning/Night routine) group the things due at each shot into one checklist on the Today screen, so nothing gets missed in the moment.</p>
 
@@ -541,6 +571,7 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
   <p class="note"><b>2. Low stock email (to you)</b> — when an item drops under 7 days of supply (Insulin instead warns at one bottle / 400 units left, since it's ordered further ahead), plus a calendar reminder on the predicted run-out day. Once per restock.</p>
   <p class="note"><b>3. Vet reorder email</b> — Prednisolone and Syringes additionally trigger a short email straight to the vet at 10 days of supply, asking them to reorder and to call or reply when it's ready. Once per restock; cancel it from that item's card on the Stock tab if you've already reordered elsewhere.</p>
   <p class="note"><b>4. "Running out" warnings in the app</b> — the home screen and Stock tab flag an item early, before either email above fires: 15 days for Prednisolone/Syringes, 7 days for everything else (or under a bottle for Insulin).</p>
+  <p class="note"><b>In the Android app</b>, the phone notifies you itself too, no sheet needed: feeding &amp; meds reminders, a shot not logged 30 minutes after its time, and stock about to run low. Set them in Setup → Phone notifications.</p>
   <p class="note"><b>5. Monthly report</b> — on the 1st of each month, an AI-written summary of the last 30 days (medication totals, weight/glucose trends, incidents), compared against the 30 days before, emailed to you. Missing a Gemini API key just means plainer numbers, not no report.</p>
 
   <h3 style="margin-top:18px">Data &amp; privacy</h3>
@@ -550,6 +581,27 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
   <p class="note">The alerts above need this done once, from the Apps Script editor (Extensions → Apps Script on your Google Sheet), after pasting the sync code in: fill in <b>ALERT_EMAIL</b> at the top, then run <b>installReminders</b>, <b>installStockAlerts</b> and <b>installMonthlyReport</b> once each from the function dropdown — <b>installStockAlerts</b> is the one that asks for calendar permission. A free Gemini key (Project Settings → Script Properties → <b>GEMINI_API_KEY</b>) gives the monthly report its write-up. Any later change to the script needs a redeploy — Deploy → Manage deployments → pencil → Version: New version — or new buttons answer "unknown action".</p>
 
   <button class="btn sec" style="margin-top:14px" onclick="closeSheet()">Close</button>
+</div>
+
+<div class="sheet" id="typeSheet">
+  <div class="grab"></div>
+  <h2 id="ctTitle">New item</h2>
+  <div class="fld"><label>Name</label><input id="ctName" maxlength="40" placeholder="e.g. Vitamin B"></div>
+  <p class="note" id="ctNameNote" style="display:none;margin:-4px 0 12px">The name is fixed once something is logged under it: the sheet matches rows by name.</p>
+  <div class="two">
+    <div class="fld"><label>Icon</label><input id="ctIcon" maxlength="8"></div>
+    <div class="fld"><label>Colour</label><select id="ctCol">
+      <option value="--med">Purple (meds)</option><option value="--food">Green (food)</option><option value="--treat">Pink (treats)</option>
+      <option value="--walk">Blue (walks)</option><option value="--vet">Teal (vet)</option><option value="--insulin">Amber (insulin)</option>
+      <option value="--alert">Red (alerts)</option><option value="--mu">Grey</option></select></div>
+  </div>
+  <div class="two">
+    <div class="fld"><label>Unit</label><input id="ctUnit" maxlength="16" placeholder="tablets, ml…"></div>
+    <div class="fld"><label>Default amount</label><input id="ctDef" type="number" step="0.05" inputmode="decimal"></div>
+  </div>
+  <label class="note" style="display:flex;gap:9px;align-items:center;margin-bottom:6px"><input type="checkbox" id="ctStk" style="width:auto"> Track stock for it</label>
+  <button class="btn" onclick="saveCustomType()">Save item</button>
+  <button class="btn dgr" id="ctDel" style="margin-top:9px;display:none" onclick="delCustomType()">Delete item</button>
 </div>
 
 <div id="toast"></div>
@@ -627,7 +679,8 @@ const T={
   // Logged by Setup when the insulin dose field changes; qty is the new dose.
   dose:{n:'Dose change',i:'📈',c:'--insulin',u:'units',d:8}
 };
-const LOGGABLE=()=>Object.keys(T).filter(k=>!T[k].s);
+// h:1 — a custom item hidden from the pickers; its old entries still render.
+const LOGGABLE=()=>Object.keys(T).filter(k=>!T[k].s&&!T[k].h);
 const QUICK=['insulin','food','walk','chicken','glucose','pred','para','samylin','poop','weewee'];
 const FLAGS=['sick','diarrhea','pee','vet'];
 
@@ -636,7 +689,8 @@ const DEF={
   insulin:8, amTime:'11:30', pmTime:'23:30', gap:12, homeLat:null, homeLon:null, homeAcc:null, stock:{},
   am:[['food',2],['insulin',8],['samylin',2],['synulox',1],['para',.5],['chicken',30]],
   pm:[['food',2],['insulin',8],['synulox',1],['pred',.5],['para',.5],['chicken',25]],
-  syncUrl:'', syncKey:'', lastSync:'', theme:'', wakeOn:false
+  syncUrl:'', syncKey:'', lastSync:'', theme:'', wakeOn:false, customTypes:{},
+  feedAm:'11:20', feedPm:'23:20', notifOn:true, notifMiss:true, notifStock:true
 };
 /* map a sheet TYPE string (current or legacy spelling) to our internal key */
 const TYPE_ALIASES={
@@ -649,6 +703,37 @@ const TYPE_ALIASES={
   'poop':'poop','pee accident':'pee','was sick':'sick','sick':'sick','diarrhea':'diarrhea',
   'bath':'bath','note':'note','dose change':'dose'
 };
+
+/* ---------------- custom item types ---------------- */
+/* Items the user adds (cfg.customTypes, key -> {n,i,c,u,d,stk?,h?}) are merged
+   into T after load and after a restore. Keys are 'c_'+slug, so one can never
+   shadow a built-in. cleanType gates the form and a restored backup alike:
+   name, icon and unit all end up in innerHTML, the colour in a style. The name
+   needs an ASCII letter or digit, since tombKey strips everything else. */
+const COLOURS=['--med','--food','--treat','--walk','--vet','--mu','--alert','--insulin'];
+function cleanType(o){
+  if(!o||typeof o!=='object')return null;
+  const s=(v,n)=>String(v==null?'':v).replace(/[<>&"|]/g,'').replace(/\s+/g,' ').trim().slice(0,n);
+  const n=s(o.n,40);if(!/[a-z0-9]/i.test(n))return null;
+  const r={n,i:s(o.i,8)||'💊',c:COLOURS.includes(o.c)?o.c:'--med',u:s(o.u,16),d:o.d===''||o.d==null||!isFinite(+o.d)?'':+o.d};
+  if(o.stk)r.stk=1;if(o.h)r.h=1;
+  return r;
+}
+function customKey(name,have){
+  const b='c_'+(String(name).toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'')||'item');
+  let k=b,i=2;while(have[k])k=b+'_'+i++;
+  return k;
+}
+/* A second "Insulin" would share sync keys with the real one; a sheet alias
+   ("prednidale") already means something else. `self` is the type being edited. */
+function nameClash(name,self){
+  const n=String(name).trim().toLowerCase();
+  return Object.keys(TYPE_ALIASES).includes(n)||Object.keys(T).some(k=>k!==self&&T[k].n.toLowerCase()===n);
+}
+function mergeCustomTypes(){
+  const ct=cfg.customTypes||{};
+  Object.keys(ct).forEach(k=>{const t=/^c_[a-z0-9_]+$/.test(k)&&cleanType(ct[k]);if(t&&!nameClash(t.n,k))T[k]=t});
+}
 let cfg=JSON.parse(JSON.stringify(DEF));
 let entries=[];
 let editId=null, histLimit=30, histType='all';
@@ -805,6 +890,7 @@ document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState!=='visible')return;
   if(cfg.wakeOn&&!wakeLock)acquireWake();
   autoSync();
+  if(NAT){renderNotif();pushNotifPlan()}
 });
 
 /* ---------------- core log ---------------- */
@@ -1500,7 +1586,7 @@ function renderStock(){
   });
   const sel=document.createElement('select');
   sel.innerHTML='<option value="">+ Track stock for\u2026</option>'+
-    STOCKABLE.filter(k=>!keys.includes(k)).map(k=>`<option value="${k}">${T[k].i} ${T[k].n}</option>`).join('');
+    STOCKABLE.concat(Object.keys(T).filter(k=>T[k].stk&&!T[k].h&&!STOCKABLE.includes(k))).filter(k=>!keys.includes(k)).map(k=>`<option value="${k}">${T[k].i} ${T[k].n}</option>`).join('');
   sel.onchange=()=>{
     if(!sel.value)return;
     cfg.stock=cfg.stock||{};
@@ -1643,12 +1729,13 @@ function openVetSummary(){
 }
 async function shareVetSummary(){
   const text=document.getElementById('sumText').textContent||vetSummary();
+  if(NAT){NAT.share(text);return}
   if(navigator.share){
     try{await navigator.share({title:'Zuse \u2014 30 day summary',text});return}
     catch(e){if(e&&e.name==='AbortError')return}
   }
   try{await navigator.clipboard.writeText(text);toast('Summary copied to clipboard')}
-  catch(e){dl(`zuse-summary-${iso(new Date())}.txt`,text,'text/plain');toast('Summary downloaded')}
+  catch(e){dl(`zuse-summary-${iso(new Date())}.txt`,text,'text/plain','Summary downloaded')}
 }
 
 /* ---------------- photos ---------------- */
@@ -1883,6 +1970,7 @@ function renderSettings(){
     sel.onchange=()=>{if(sel.value){cfg[w].push([sel.value,T[sel.value].d||1]);saveCfg();renderSettings();renderChecks();renderRoutineCards()}};
     box.appendChild(sel);
   });
+  renderCustomList();renderNotif();
 }
 ['sInsulin','sAm','sPm','sGap','sCarer'].forEach(id=>{
   document.addEventListener('change',ev=>{
@@ -1916,7 +2004,8 @@ function typeKeyFromSheetType(str){
   const k=(str||'').trim().toLowerCase();
   if(TYPE_ALIASES[k]&&T[TYPE_ALIASES[k]])return TYPE_ALIASES[k];
   // try matching against our own display names directly
-  const hit=LOGGABLE().find(tk=>T[tk].n.toLowerCase()===k);
+  // hidden custom items still match: their rows are theirs, not unknown notes
+  const hit=Object.keys(T).find(tk=>!T[tk].s&&T[tk].n.toLowerCase()===k);
   return hit||null;
 }
 /* sheet quantity cells mix plain numbers ("2") with number+unit text
@@ -2093,9 +2182,10 @@ function renderRoutineCards(){
 function openLog(entry,preset){
   editId=entry?entry.id:null;
   const sel=document.getElementById('fType');
-  sel.innerHTML=LOGGABLE().map(k=>`<option value="${k}">${T[k].i} ${T[k].n}</option>`).join('');
+  const k=entry?entry.type:(preset||'food'), opts=LOGGABLE();
+  if(!opts.includes(k)&&T[k])opts.push(k); // a hidden item's old entry stays editable
+  sel.innerHTML=opts.map(k=>`<option value="${k}">${T[k].i} ${T[k].n}</option>`).join('');
   const now=new Date();
-  const k=entry?entry.type:(preset||'food');
   sel.value=k;
   document.getElementById('shTitle').textContent=entry?'Edit entry':'Log entry';
   document.getElementById('fQty').value=entry?entry.qty:(k==='insulin'?cfg.insulin:T[k].d);
@@ -2129,6 +2219,7 @@ function closeSheet(){
   document.getElementById('urineSheet').classList.remove('on');
   document.getElementById('sumSheet').classList.remove('on');
   document.getElementById('featuresSheet').classList.remove('on');
+  document.getElementById('typeSheet').classList.remove('on');
 }
 function saveEntry(){
   const o={type:document.getElementById('fType').value,
@@ -2164,16 +2255,22 @@ function delEntry(){
 }
 
 /* ---------------- data ---------------- */
-function dl(name,text,mime){
+/* One toast, here: inside the Android app a blob link goes nowhere, so the file
+   goes through the bridge, and a failed save must not be announced as saved. */
+function dl(name,text,mime,okMsg){
+  if(NAT){
+    let err;try{err=NAT.saveFile(name,mime,text)}catch(e){err=e&&e.message||String(e)}
+    toast(err?'Could not save: '+err:'Saved to Downloads');return !err;
+  }
   const b=new Blob([text],{type:mime}),u=URL.createObjectURL(b),a=document.createElement('a');
   a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);
+  if(okMsg)toast(okMsg);return true;
 }
 function exportCSV(){
   const rows=[['Date','Time','Type','Quantity','Unit','Notes']];
   [...entries].sort((a,b)=>(a.date+a.time)<(b.date+b.time)?-1:1)
     .forEach(e=>rows.push([e.date,e.time,(T[e.type]||T.note).n,e.qty,(T[e.type]||T.note).u,e.note]));
-  dl(`zuse-log-${iso(new Date())}.csv`,rows.map(r=>r.map(c=>`"${String(c??'').replace(/"/g,'""')}"`).join(',')).join('\n'),'text/csv');
-  toast('CSV downloaded');
+  dl(`zuse-log-${iso(new Date())}.csv`,rows.map(r=>r.map(c=>`"${String(c??'').replace(/"/g,'""')}"`).join(',')).join('\n'),'text/csv','CSV downloaded');
 }
 const blobToDataUrl=b=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(r.error);r.readAsDataURL(b)});
 const dataUrlToBlob=async u=>(await fetch(u)).blob();
@@ -2183,8 +2280,7 @@ async function exportJSON(){
   if(ids.length)toast(`Packing ${ids.length} photo${ids.length>1?'s':''}…`);
   const photos={};
   for(const id of ids){try{const b=await Media.get(id);if(b)photos[id]=await blobToDataUrl(b)}catch(e){}}
-  dl(`zuse-backup-${iso(new Date())}.json`,JSON.stringify({cfg,entries,photos},null,1),'application/json');
-  toast('Backup downloaded');
+  dl(`zuse-backup-${iso(new Date())}.json`,JSON.stringify({cfg,entries,photos},null,1),'application/json','Backup downloaded');
 }
 function importJSON(ev){
   const f=ev.target.files[0];if(!f)return;const r=new FileReader();
@@ -2197,6 +2293,7 @@ function importJSON(ev){
     // The carer name belongs to this phone, not to whichever phone made the backup.
     const carer=cfg.carer;
     entries=d.entries;if(d.cfg)cfg=Object.assign(cfg,d.cfg);cfg.carer=carer;
+    mergeCustomTypes();renderAllTypes();renderSettings();
     await save();await saveCfg();
     photoUrls.forEach(u=>URL.revokeObjectURL(u));photoUrls.clear();
     renderAll();
@@ -2256,6 +2353,168 @@ document.getElementById('stockWinSel').onchange=ev=>{stockWin=+ev.target.value;r
 document.getElementById('nav').innerHTML=VIEWS.map(([k,n,i])=>
   `<button class="nb${k==='today'?' on':''}" id="nb-${k}" onclick="nav('${k}')"><span class="ni">${i}</span>${n}</button>`).join('');
 
+/* ---------------- custom item UI ---------------- */
+function renderAllTypes(){
+  const el=document.getElementById('allTypes');tileGrid(el,LOGGABLE());
+  const b=document.createElement('button');b.className='q';b.style.setProperty('--c',cvar('--mu'));
+  b.innerHTML='<span class="ic">＋</span><span class="nm">New item</span>';b.onclick=()=>openTypeSheet();
+  el.appendChild(b);
+}
+function renderCustomList(){
+  const box=document.getElementById('customList'), ks=Object.keys(cfg.customTypes||{}).filter(k=>T[k]);
+  box.innerHTML=ks.length?'':'<p class="note" style="margin-bottom:9px">Nothing added yet. Anything else he takes can go here, with its own icon, unit and default amount.</p>';
+  ks.forEach(k=>{
+    const row=document.createElement('div');row.style.cssText='display:flex;gap:9px;align-items:center;margin-bottom:9px';
+    row.innerHTML=`<span style="flex:1;font-size:14px">${T[k].i} ${T[k].n}${T[k].h?' <span class="note">(hidden)</span>':''}</span>`;
+    const ed=document.createElement('button');ed.className='btn sec';ed.style.cssText='width:auto;margin:0;padding:6px 12px;font-size:13px';
+    ed.textContent='Edit';ed.onclick=()=>openTypeSheet(k);
+    const del=document.createElement('button');del.textContent='✕';del.style.cssText='color:var(--dim);padding:6px 4px';
+    del.setAttribute('aria-label',`Delete or hide ${T[k].n}`);del.onclick=()=>{ctEdit=k;delCustomType()};
+    row.appendChild(ed);row.appendChild(del);box.appendChild(row);
+  });
+}
+let ctEdit=null;
+function openTypeSheet(k){
+  ctEdit=k||null;
+  const g=id=>document.getElementById(id), t=k?T[k]:{n:'',i:'💊',c:'--med',u:'',d:1};
+  const used=!!k&&entries.some(e=>e.type===k);
+  g('ctTitle').textContent=k?'Edit item':'New item';
+  g('ctName').value=t.n;g('ctName').disabled=used;g('ctNameNote').style.display=used?'block':'none';
+  g('ctIcon').value=t.i;g('ctUnit').value=t.u;g('ctDef').value=t.d;g('ctCol').value=t.c;g('ctStk').checked=!!t.stk;
+  g('ctDel').style.display=k?'block':'none';
+  g('ctDel').textContent=used?(t.h?'Show it in the lists again':'Hide it (its entries stay)'):'Delete item';
+  openSheet('typeSheet');
+}
+/* The name is locked once an entry uses it (openTypeSheet disables the box):
+   renaming would change every sync key, re-pull the old rows as notes and push
+   every entry again under the new name. */
+function saveCustomType(){
+  const g=id=>document.getElementById(id);
+  const t=cleanType({n:g('ctName').value,i:g('ctIcon').value,c:g('ctCol').value,u:g('ctUnit').value,
+    d:g('ctDef').value,stk:g('ctStk').checked,h:ctEdit&&T[ctEdit].h});
+  if(!t){toast('Give it a name with at least one letter or number');return}
+  if(nameClash(t.n,ctEdit)){toast(`There is already an item called ${t.n}`);return}
+  const k=ctEdit||customKey(t.n,T);
+  adoptSrcType(t.n);
+  (cfg.customTypes=cfg.customTypes||{})[k]=t;T[k]=Object.assign({},t);
+  save();saveCfg();closeSheet();renderAllTypes();renderSettings();renderAll();
+  toast(ctEdit?`${t.n} saved`:`${t.n} added — it is on the Log tab`);
+}
+/* Rows of this name pulled in before the item existed are srcType notes. The
+   pull keys a known type by the item's own spelling, so the notes adopt it
+   exactly; otherwise "mymed" on the sheet against a "MyMed" item would pull and
+   push every such row again. They stay notes, so no amount is lost. */
+function adoptSrcType(name){
+  const n=name.toLowerCase();
+  entries.forEach(e=>{if(e.srcType&&e.srcType.trim().toLowerCase()===n)e.srcType=name});
+}
+/* Never orphan an entry: an item with entries can only be hidden. A deleted one
+   leaves the routines and stock too, which read T[type] directly. */
+function delCustomType(){
+  const k=ctEdit, t=k&&T[k];if(!t)return;
+  if(entries.some(e=>e.type===k)){
+    const h=!t.h;[T[k],cfg.customTypes[k]].forEach(o=>{if(h)o.h=1;else delete o.h});
+    toast(h?`${t.n} hidden — its entries stay`:`${t.n} is back in the lists`);
+  }else{
+    if(!confirm(`Delete ${t.n}? Nothing is logged under it.`))return;
+    delete cfg.customTypes[k];delete T[k];
+    ['am','pm'].forEach(w=>{cfg[w]=cfg[w].filter(r=>r[0]!==k)});
+    if(cfg.stock)delete cfg.stock[k];
+    toast(`${t.n} deleted`);
+  }
+  saveCfg();closeSheet();renderAllTypes();renderSettings();renderAll();
+}
+
+/* ---------------- Android app bridge ---------------- */
+/* window.ZuseNative exists only inside the Android app (see android/). All of
+   this is a no-op without it, so the PWA and the TWA run unchanged. */
+const NAT=window.ZuseNative||null;
+/* The alarm list the app arms, for the next 14 days: feeding reminders, missed
+   shots, and the day each tracked item will cross its low line. Ids are stable,
+   so handing over the same plan again never repeats a notification. */
+function notifPlan(now){
+  const out=[], end=+now+14*864e5, nm={am:'morning',pm:'night'};
+  const put=(id,d,title,body)=>{if(d>now&&+d<=end)out.push({id,at:+d,title,body})};
+  // calendar arithmetic, not 864e5 steps: a DST change would shift every alarm an hour
+  const at=(i,t)=>{const[h,m]=t.split(':').map(Number);return new Date(now.getFullYear(),now.getMonth(),now.getDate()+i,h,m)};
+  // from yesterday: a night shot's alert can fall after midnight
+  for(let i=-1;i<=14;i++){
+    const ds=iso(at(i,'12:00'));
+    ['am','pm'].forEach(w=>{
+      const f=at(i,w==='am'?cfg.feedAm:cfg.feedPm);
+      // an empty routine has nothing to remind about; a finished one, nothing left
+      if(cfg[w].length&&!(currentRoutine(f)===w&&routineDone(w,f).every(Boolean)))
+        put(`feed-${w}-${ds}`,f,`🥫 Feeding & meds — ${nm[w]}`,cfg[w].map(([t,q])=>`${T[t]?T[t].n:t} ${q}`).join(' · '));
+      if(!cfg.notifMiss)return;
+      const shot=w==='am'?cfg.amTime:cfg.pmTime, m=at(i,shot);m.setMinutes(m.getMinutes()+30);
+      const[a,b]=routineWin(w,m);
+      if(!entries.some(e=>e.type==='insulin'&&ts(e)>=a&&ts(e)<b))
+        put(`miss-${w}-${ds}`,m,'💉 Insulin not logged',`The ${nm[w]} shot (${fmt12(shot)}) is not in the log yet.`);
+    });
+  }
+  // Already-low items are told at once (notifyLow); this is the day the rest cross.
+  if(cfg.notifStock)trackedStock().forEach(t=>{
+    const s=stockLeft(t);
+    if(!s||s.days==null||isLowStock(Object.assign({t},s)))return;
+    const n=LOW_LEFT[t]!=null?Math.ceil((s.left-LOW_LEFT[t])/s.rate):s.days-(LOW_DAYS_OVERRIDE[t]||LOW_DAYS);
+    const left=Math.round((s.left-s.rate*n)*100)/100;
+    put(`stock-${t}-${cfg.stock[t].since}`,at(n,'10:00'),`📦 ${T[t].n} running low`,
+      stockLabel({t,left,rate:s.rate,days:Math.floor(left/s.rate)})+' — time to reorder.');
+  });
+  return out.sort((a,b)=>a.at-b.at);
+}
+let notifT=0;
+function pushNotifPlan(){
+  if(!NAT)return;
+  clearTimeout(notifT);
+  notifT=setTimeout(()=>{
+    try{NAT.setPlan(JSON.stringify({items:cfg.notifOn?notifPlan(new Date()):[]}))}catch(e){}
+    notifyLow();
+  },1000);
+}
+/* Once per restock: `notified` holds the `since` it was sent for. */
+function notifyLow(){
+  if(!NAT||!cfg.notifOn||!cfg.notifStock)return;
+  // not allowed yet: a post would be dropped, so don't spend this restock's one alert on it
+  try{if(NAT.notifPermission()!=='granted')return}catch(e){return}
+  let ch=0;
+  lowStock().forEach(x=>{
+    const s=cfg.stock[x.t];if(s.notified===s.since)return;
+    // same id as the planned alert, so one that already fired is replaced, not doubled
+    try{NAT.notify(`stock-${x.t}-${s.since}`,'📦 Running low: '+T[x.t].n,stockLabel(x));s.notified=s.since;ch=1}catch(e){}
+  });
+  if(ch)saveCfg();
+}
+function renderNotif(){
+  const g=id=>document.getElementById(id);
+  g('notifNone').style.display=NAT?'none':'block';g('notifCard').style.display=NAT?'block':'none';
+  if(!NAT)return;
+  let p='default',ex=true;try{p=NAT.notifPermission();ex=NAT.exactAlarms()}catch(e){}
+  g('notifStatus').textContent=p==='granted'?'Notifications are allowed on this phone.'
+    :p==='denied'?'Notifications are blocked. If the button does nothing, allow them in Android Settings → Apps → this app → Notifications.'
+    :'Notifications are not allowed yet, so nothing will show.';
+  g('notifAllow').style.display=p==='granted'?'none':'block';
+  g('notifExactBox').style.display=ex?'none':'block';
+  g('nOn').checked=!!cfg.notifOn;g('nMiss').checked=!!cfg.notifMiss;g('nStock').checked=!!cfg.notifStock;
+  g('nFeedAm').value=cfg.feedAm;g('nFeedPm').value=cfg.feedPm;
+}
+function testNotif(){
+  try{NAT.notify('test','🐕 Zuse care log','Notifications are working.');toast('Test sent')}
+  catch(e){toast('Could not send: '+(e&&e.message||e))}
+}
+document.addEventListener('change',ev=>{
+  const m={nOn:'notifOn',nMiss:'notifMiss',nStock:'notifStock',nFeedAm:'feedAm',nFeedPm:'feedPm'}[ev.target.id];
+  if(!m)return;
+  const v=ev.target.type==='checkbox'?ev.target.checked:ev.target.value;
+  if(v==='')return; // a cleared time box keeps the old time
+  cfg[m]=v;saveCfg();pushNotifPlan();toast('Saved');
+});
+/* A WebView opens target=_blank links nowhere; hand them to the browser. */
+document.addEventListener('click',ev=>{
+  const a=NAT&&ev.target.closest&&ev.target.closest('a[target="_blank"]');
+  if(a){ev.preventDefault();NAT.openExternal(a.href)}
+});
+
 /* ---------------- boot ---------------- */
 function renderSyncFab(){
   const el=document.getElementById('floatSyncTime');
@@ -2268,6 +2527,7 @@ function renderAll(){
   if(document.getElementById('v-hist').classList.contains('on')){renderFilters();renderHist()}
   if(document.getElementById('v-trend').classList.contains('on'))renderCharts();
   if(document.getElementById('v-stock').classList.contains('on'))renderStockAll();
+  pushNotifPlan();
 }
 function tick(){
   const n=new Date();
@@ -2276,11 +2536,11 @@ function tick(){
   renderRing();renderWalkBar();renderVetBar();
 }
 (async function(){
-  await load();
+  await load();mergeCustomTypes();
   if(!cfg.theme){cfg.theme=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';saveCfg();}
   applyTheme();renderWakeBtn();if(cfg.wakeOn)acquireWake();
   tileGrid(document.getElementById('quick'),QUICK);
-  tileGrid(document.getElementById('allTypes'),LOGGABLE());
+  renderAllTypes();
   renderAll();renderWalkBar();renderVetBar();if(walkState)armWalkAutoEnd();
   if(vetState){openVetSheet();toast('Vet visit resumed');}
   tick();setInterval(tick,20000);
@@ -2290,6 +2550,11 @@ function tick(){
     navigator.serviceWorker.addEventListener('message',ev=>{
       if(ev.data&&ev.data.type==='zuse-sync-now'&&cfg.syncUrl&&cfg.syncKey)syncNow();
     });
+  }
+  if(NAT){
+    document.getElementById('installSec').style.display='none';
+    // ask once, on the first open inside the app; Setup has the button after that
+    try{if(!cfg.notifAsked&&NAT.notifPermission()==='default'){cfg.notifAsked=1;saveCfg();NAT.requestNotifPermission()}}catch(e){}
   }
   sweepMedia();
   autoSync();
