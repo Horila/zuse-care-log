@@ -72,7 +72,11 @@ public class WalkService extends Service implements LocationListener {
     @Override public int onStartCommand(Intent intent, int flags, int id) {
         if (intent != null && END.equals(intent.getAction())) { finish(System.currentTimeMillis()); return START_NOT_STICKY; }
         JSONObject w;
-        try { w = new JSONObject(Reminders.prefs(this).getString(WALK, "")); } catch (Exception e) { stopSelf(); return START_NOT_STICKY; }
+        try { w = new JSONObject(Reminders.prefs(this).getString(WALK, "")); }
+        catch (Exception e) { // cancelled before it got here; still owes Android a startForeground
+            try { startForeground(ONGOING, builder(this).setContentTitle("🦮 Walk ended").build()); } catch (Exception ignored) { }
+            stopSelf(); return START_NOT_STICKY;
+        }
         start = w.optLong("start", System.currentTimeMillis());
         grace = w.optLong("grace", 300_000);
         radius = w.optDouble("radius", 2);

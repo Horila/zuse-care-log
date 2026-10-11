@@ -45,8 +45,8 @@ public class MainActivity extends Activity {
 
     @Override protected void onCreate(Bundle saved) {
         super.onCreate(saved);
-        Reminders.channel(this);
-        SyncJob.schedule(this);
+        catchCrashes();
+        try { Reminders.channel(this); SyncJob.schedule(this); } catch (Exception ignored) { }
         web = new WebView(this);
         web.setBackgroundColor(0xFF0E1419);
         setContentView(web);
@@ -61,6 +61,28 @@ public class MainActivity extends Activity {
         web.setWebChromeClient(new Chrome());
         if (saved == null || web.restoreState(saved) == null) web.loadUrl(START);
         live = this;
+    }
+
+    /** Keep the last crash's stack trace and show it on the next open, since a phone has no other way to report it. */
+    void catchCrashes() {
+        String last = Reminders.prefs(this).getString("crash", null);
+        if (last != null) {
+            Reminders.prefs(this).edit().remove("crash").commit();
+            android.widget.TextView t = new android.widget.TextView(this);
+            t.setText(last); t.setTextIsSelectable(true); t.setTextSize(11); t.setPadding(40, 20, 40, 20);
+            android.widget.ScrollView sv = new android.widget.ScrollView(this);
+            sv.addView(t);
+            new AlertDialog.Builder(this).setTitle("Zuse crashed last time").setView(sv)
+                    .setPositiveButton(android.R.string.ok, null).show();
+        }
+        Thread.UncaughtExceptionHandler prev = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((th, e) -> {
+            java.io.StringWriter sw = new java.io.StringWriter();
+            e.printStackTrace(new java.io.PrintWriter(sw));
+            String s = sw.toString();
+            Reminders.prefs(this).edit().putString("crash", s.length() > 6000 ? s.substring(0, 6000) : s).commit();
+            if (prev != null) prev.uncaughtException(th, e);
+        });
     }
 
     @Override protected void onDestroy() { if (live == this) live = null; super.onDestroy(); }
@@ -173,7 +195,10 @@ public class MainActivity extends Activity {
             geoCb = null;
         }
         if (req == REQ_WALK && walkJson != null) {
-            for (int r : res) if (r == PackageManager.PERMISSION_GRANTED) { WalkService.begin(this, walkJson); break; }
+            for (int r : res) if (r == PackageManager.PERMISSION_GRANTED) {
+                try { WalkService.begin(this, walkJson); } catch (Exception ignored) { }
+                break;
+            }
             walkJson = null;
         }
         // the page has no callback for the permission prompt; refresh its status line
@@ -184,7 +209,7 @@ public class MainActivity extends Activity {
     class Bridge {
         boolean ok() { return inApp(pageUrl); }
 
-        @JavascriptInterface public String version() { return "3.0"; }
+        @JavascriptInterface public String version() { return "3.1"; }
 
         /** Hand the walk to WalkService so it survives the app being closed. */
         @JavascriptInterface public void startWalk(String json) {
@@ -192,7 +217,7 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
                         || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-                    WalkService.begin(MainActivity.this, json);
+                    try { WalkService.begin(MainActivity.this, json); } catch (Exception ignored) { }
                     return;
                 }
                 walkJson = json;
@@ -204,13 +229,15 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void setSyncEvery(int min) {
             if (!ok()) return;
             Reminders.prefs(MainActivity.this).edit().putInt("syncMin", min).commit();
-            SyncJob.schedule(MainActivity.this);
+            try { SyncJob.schedule(MainActivity.this); } catch (Exception ignored) { }
         }
 
         /** Around each sync the page runs, so closing the app mid-sync doesn't cut it off. */
         @JavascriptInterface public void syncing(boolean on) { if (ok()) SyncKeep.set(MainActivity.this, on); }
 
-        @JavascriptInterface public void stopWalk() { if (ok()) WalkService.cancel(MainActivity.this); }
+        @JavascriptInterface public void stopWalk() {
+            if (ok()) try { WalkService.cancel(MainActivity.this); } catch (Exception ignored) { }
+        }
 
         /** Entries finished natively while the page wasn't looking, as a JSON array; empties the queue. */
         @JavascriptInterface public String takeEntries() { return ok() ? WalkService.take(MainActivity.this) : "[]"; }
