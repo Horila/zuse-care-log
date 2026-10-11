@@ -19,7 +19,7 @@ import android.webkit.WebViewClient;
  * Doze defers it to the phone's maintenance windows; that is the ceiling.
  */
 public class SyncJob extends JobService {
-    static final int ID = 1;
+    static final int ID = 1, SOON = 2;
     static final String PLAN = "JSON.stringify({items:cfg.notifOn?notifPlan(new Date()):[]})";
 
     WebView web;
@@ -41,6 +41,12 @@ public class SyncJob extends JobService {
                 .build());
     }
 
+    /** One sync as soon as there's a network: a widget tap. */
+    static void soon(Context ctx) {
+        ctx.getSystemService(JobScheduler.class).schedule(new JobInfo.Builder(SOON, new ComponentName(ctx, SyncJob.class))
+                .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY).build());
+    }
+
     @Override public boolean onStartJob(JobParameters p) {
         MainActivity a = MainActivity.live;
         if (a != null) { // the app is in memory: its page syncs and its bridge sends the plan; the job just keeps it awake
@@ -59,12 +65,32 @@ public class SyncJob extends JobService {
             @Override public void onPageFinished(WebView v, String url) {
                 if (started) return;
                 started = true;
-                h.postDelayed(() -> poll(p, System.currentTimeMillis() + 180_000), 3000);
+                h.postDelayed(() -> ready(p, System.currentTimeMillis() + 30_000), 1000);
             }
         });
         web.loadUrl(MainActivity.START);
         h.postDelayed(() -> done(p), 240_000); // never hold the job longer than this
         return true;
+    }
+
+    /**
+     * Wait for the page to have loaded its log (zuseReady), then hand it the native queue:
+     * widget taps and finished walks. Taking the queue before that would log into an
+     * empty list and save it over the real one.
+     */
+    void ready(JobParameters p, long deadline) {
+        if (web == null) return;
+        web.evaluateJavascript("window.zuseReady===1&&typeof takeNative==='function'", ok -> {
+            if (web == null) return;
+            if (!"true".equals(ok)) {
+                if (System.currentTimeMillis() < deadline) h.postDelayed(() -> ready(p, deadline), 1000);
+                else done(p); // offline error page, or an old page: leave the queue for next time
+                return;
+            }
+            String q = WalkService.take(this);
+            web.evaluateJavascript("takeNative(" + org.json.JSONObject.quote(q) + ")", null);
+            h.postDelayed(() -> poll(p, System.currentTimeMillis() + 180_000), 1000);
+        });
     }
 
     /** Wait for the page's sync to finish, then take its plan. */

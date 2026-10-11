@@ -262,6 +262,11 @@ the TWA are unchanged. Contract: `version`, `setPlan(json)`, `notify(id,title,bo
   `takeNative()` drains them on load, on becoming visible, and when the service
   pokes a still-loaded page. Ceiling: with the app fully closed the walk reaches
   the log and the sheet only on the next open, with its true start and end.
+- Widget: `QuickWidget` (Wee Wee / Poop) queues `{t,at}` through `QuickLog` into
+  the same native queue as walks; `takeNative` logs it with the tap time and syncs.
+  The tap also schedules a one-off `SyncJob`, which waits for `window.zuseReady`
+  (set right after `load()`) before passing the queue in as `takeNative(qs)`:
+  draining earlier would log into an empty `entries` and save it over the log.
 - Background sync: `SyncJob` (JobScheduler, every `cfg.bgSync` min, network required) loads
   the page in a hidden WebView with no bridge, lets its init `autoSync` run, polls
   `syncBusy`, then evaluates `notifPlan` and hands it to `Reminders.setPlan`. So

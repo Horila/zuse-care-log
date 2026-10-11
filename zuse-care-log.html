@@ -1044,17 +1044,23 @@ function disarmWalkAutoEnd(keepNative){
   if(walkWatchId!=null){navigator.geolocation.clearWatch(walkWatchId);walkWatchId=null;}
   if(!keepNative&&NAT&&NAT.stopWalk)try{NAT.stopWalk()}catch(e){}
 }
-/* Walks the native service ended (home reached, or End walk on the notification) while
-   the page wasn't looking. Each carries its own start and end, so a late drain logs true times. */
-function takeNative(){
-  if(!NAT||!NAT.takeEntries)return;
-  let q=[];try{q=JSON.parse(NAT.takeEntries()||'[]')}catch(e){}
+/* Entries the Android side queued while the page wasn't looking: walks the native service
+   ended (home reached, or End walk on the notification) and home-screen widget taps. Each
+   carries its own times, so a late drain logs true times. The background sync's hidden page
+   has no bridge and passes the queue in as qs. */
+function takeNative(qs){
+  if(!window.zuseReady)return; // before load() a log() would land in an empty list and be saved over the real one
+  if(qs==null){if(!NAT||!NAT.takeEntries)return;try{qs=NAT.takeEntries()}catch(e){return}}
+  let q=[];try{q=JSON.parse(qs||'[]')}catch(e){}
   let n=0;
   q.forEach(x=>{
-    if(x.t!=='walk'||!walkState)return;
-    // the same walk only: one ended and restarted in the app meanwhile is a different one
-    if(Math.abs(new Date(`${walkState.date}T${walkState.time}:00`)-x.start)>6e4)return;
-    endWalk(new Date(x.end));n++;
+    if(x.t==='walk'){
+      if(!walkState)return;
+      // the same walk only: one ended and restarted in the app meanwhile is a different one
+      if(Math.abs(new Date(`${walkState.date}T${walkState.time}:00`)-x.start)>6e4)return;
+      endWalk(new Date(x.end));n++;return;
+    }
+    if(T[x.t]&&x.at){add(x.t,T[x.t].d,'',new Date(x.at));n++}
   });
   if(n&&cfg.syncUrl&&cfg.syncKey)syncNow();
 }
@@ -2565,7 +2571,7 @@ function tick(){
   renderRing();renderWalkBar();renderVetBar();
 }
 (async function(){
-  await load();mergeCustomTypes();
+  await load();mergeCustomTypes();window.zuseReady=1;
   if(!cfg.theme){cfg.theme=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';saveCfg();}
   applyTheme();renderWakeBtn();if(cfg.wakeOn)acquireWake();
   tileGrid(document.getElementById('quick'),QUICK);

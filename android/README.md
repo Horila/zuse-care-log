@@ -5,7 +5,9 @@ https://horila.github.io/zuse-care-log/zuse-care-log.html, plus a `window.ZuseNa
 bridge for exact-alarm reminders (alarm-stream sound, so they ring on silent), notifications,
 Downloads, sharing, and `WalkService`: a location foreground service that keeps a walk going
 and auto-ends it at home with the app closed. `SyncJob` syncs with the sheet about every 30 min
-with the app closed, by running the page's own sync in a hidden WebView.
+with the app closed, by running the page's own sync in a hidden WebView. `QuickWidget` is a
+home-screen Wee Wee / Poop widget; taps queue natively (`QuickLog`) and a one-off `SyncJob` logs
+and syncs them.
 Package `io.github.horila.twa`, so it installs over the old PWABuilder app.
 
 ## Build
@@ -36,7 +38,7 @@ not your upload key: sideloading over it will fail; upload this build to Play in
 ## Versions
 
 Bump `--version-code` (and `--version-name`) in `build.sh` on every release you install.
-Android refuses a lower versionCode than the installed one. Current: versionCode 4, "3.1". `version()` in
+Android refuses a lower versionCode than the installed one. Current: versionCode 5, "3.2". `version()` in
 `MainActivity.java` returns the same name; keep them together.
 
 ## Your data

@@ -209,7 +209,7 @@ public class MainActivity extends Activity {
     class Bridge {
         boolean ok() { return inApp(pageUrl); }
 
-        @JavascriptInterface public String version() { return "3.1"; }
+        @JavascriptInterface public String version() { return "3.2"; }
 
         /** Hand the walk to WalkService so it survives the app being closed. */
         @JavascriptInterface public void startWalk(String json) {

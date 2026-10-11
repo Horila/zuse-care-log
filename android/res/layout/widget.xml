@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:padding="4dp">
+    <TextView
+        android:id="@+id/wee"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:layout_marginEnd="4dp"
+        android:background="@drawable/widget_btn"
+        android:gravity="center"
+        android:text="💧 Wee"
+        android:textColor="#E6EDF3"
+        android:textSize="16sp" />
+    <TextView
+        android:id="@+id/poop"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:background="@drawable/widget_btn"
+        android:gravity="center"
+        android:text="💩 Poop"
+        android:textColor="#E6EDF3"
+        android:textSize="16sp" />
+</LinearLayout>
