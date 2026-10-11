@@ -18,7 +18,7 @@ rm -rf "$TMP"; mkdir -p "$TMP/gen" "$TMP/classes" "$TMP/dex"
 echo "== aapt2 compile/link"
 "$BT/aapt2.exe" compile --dir res -o "$TMP/res.zip"
 "$BT/aapt2.exe" link -I "$JAR" --manifest AndroidManifest.xml -o "$TMP/base.apk" \
-  --min-sdk-version 24 --target-sdk-version 35 --version-code 2 --version-name 2.0 \
+  --min-sdk-version 24 --target-sdk-version 35 --version-code 3 --version-name 3.0 \
   --java "$TMP/gen" "$TMP/res.zip"
 
 echo "== javac"

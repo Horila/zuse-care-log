@@ -251,7 +251,24 @@ A native Android build (`android/`, written separately) injects `ZuseNative`;
 `const NAT` is it or null, and every use is a no-op without it, so the PWA and
 the TWA are unchanged. Contract: `version`, `setPlan(json)`, `notify(id,title,body)`,
 `notifPermission`/`requestNotifPermission`, `exactAlarms`/`openExactAlarmSettings`,
-`saveFile(name,mime,text)` (returns "" or an error), `share(text)`, `openExternal(url)`.
+`saveFile(name,mime,text)` (returns "" or an error), `share(text)`, `openExternal(url)`,
+`startWalk(json)`/`stopWalk()`/`takeEntries()`, `setSyncEvery(min)` (Setup box,
+`cfg.bgSync`, 0 = off, floor 15) and `syncing(on)` (APK 3.0+, so feature-test them).
+- `syncNow` wraps each sync in `syncing(true/false)`, which holds a short `dataSync`
+  foreground service (`SyncKeep`) so closing the app mid-sync doesn't freeze it.
+- Walks: `armWalkAutoEnd` hands the walk to `WalkService`, a location foreground
+  service with an End walk button that auto-ends at home with the app closed (same
+  rule as `shouldAutoEnd`, constants passed in). Finished walks queue natively;
+  `takeNative()` drains them on load, on becoming visible, and when the service
+  pokes a still-loaded page. Ceiling: with the app fully closed the walk reaches
+  the log and the sheet only on the next open, with its true start and end.
+- Background sync: `SyncJob` (JobScheduler, every `cfg.bgSync` min, network required) loads
+  the page in a hidden WebView with no bridge, lets its init `autoSync` run, polls
+  `syncBusy`, then evaluates `notifPlan` and hands it to `Reminders.setPlan`. So
+  `autoSync`, `syncBusy`, `notifPlan` and `cfg` must stay top-level globals. With
+  the app in memory it just calls `autoSync()` on the live page.
+- Reminders ring on the `alarms` channel (alarm stream, so silent/vibrate mode
+  doesn't mute them; alarm volume does).
 - `notifPlan(now)` (pure, tested) returns `[{id,at,title,body}]` for 14 days:
   feeding reminders at `cfg.feedAm`/`feedPm` (skipped when that round is done),
   missed-shot alerts at shot + 30 min (`notifMiss`, via `routineWin`), and the

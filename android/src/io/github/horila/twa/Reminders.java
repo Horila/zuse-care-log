@@ -10,6 +10,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.BitmapFactory;
+import android.media.AudioAttributes;
+import android.media.AudioManager;
+import android.media.RingtoneManager;
+import android.net.Uri;
 import android.os.Build;
 
 import org.json.JSONArray;
@@ -17,7 +21,8 @@ import org.json.JSONObject;
 
 /** Stored reminder plan + the one alarm that walks it. Also handles boot / update / clock changes. */
 public class Reminders extends BroadcastReceiver {
-    static final String CHANNEL = "reminders";
+    // A channel's sound is fixed once created, so the loud one needed a new id; "reminders" was the old, quiet one.
+    static final String CHANNEL = "alarms";
     static final String PREFS = "zuse";
     static final String KEY = "plan", FIRED = "fired";
 
@@ -86,9 +91,20 @@ public class Reminders extends BroadcastReceiver {
 
     static void channel(Context ctx) {
         if (Build.VERSION.SDK_INT < 26) return;
+        NotificationManager nm = ctx.getSystemService(NotificationManager.class);
+        nm.deleteNotificationChannel("reminders");
         NotificationChannel ch = new NotificationChannel(CHANNEL, "Reminders", NotificationManager.IMPORTANCE_HIGH);
-        ch.enableVibration(true); // default sound comes with IMPORTANCE_HIGH
-        ctx.getSystemService(NotificationManager.class).createNotificationChannel(ch);
+        // The alarm stream plays through silent and vibrate mode, at the alarm volume.
+        ch.setSound(sound(), new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build());
+        ch.enableVibration(true);
+        ch.setBypassDnd(true); // only honoured once the user allows it for this channel
+        nm.createNotificationChannel(ch);
+    }
+
+    static Uri sound() {
+        Uri u = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+        return u != null ? u : RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
     }
 
     /** Same id string -> same notification id, so a repeat replaces instead of stacking. */
@@ -99,11 +115,13 @@ public class Reminders extends BroadcastReceiver {
         PendingIntent tap = PendingIntent.getActivity(ctx, 0, open,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(ctx, CHANNEL)
-                : new Notification.Builder(ctx).setPriority(Notification.PRIORITY_HIGH).setDefaults(Notification.DEFAULT_ALL);
+                : new Notification.Builder(ctx).setPriority(Notification.PRIORITY_HIGH)
+                        .setDefaults(Notification.DEFAULT_VIBRATE | Notification.DEFAULT_LIGHTS).setSound(sound(), AudioManager.STREAM_ALARM);
         b.setSmallIcon(R.drawable.ic_notif)
                 .setLargeIcon(BitmapFactory.decodeResource(ctx.getResources(), R.mipmap.ic_launcher))
                 .setContentTitle(title).setContentText(body)
                 .setStyle(new Notification.BigTextStyle().bigText(body))
+                .setCategory(Notification.CATEGORY_ALARM)
                 .setContentIntent(tap).setAutoCancel(true);
         try { ctx.getSystemService(NotificationManager.class).notify(id.hashCode(), b.build()); }
         catch (SecurityException ignored) { } // POST_NOTIFICATIONS not granted: silently drop

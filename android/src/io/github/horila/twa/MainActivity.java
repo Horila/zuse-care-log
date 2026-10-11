@@ -33,17 +33,20 @@ import java.nio.charset.StandardCharsets;
 public class MainActivity extends Activity {
     static final String APP = "https://horila.github.io/zuse-care-log/";
     static final String START = APP + "zuse-care-log.html";
-    static final int REQ_FILE = 1, REQ_LOC = 2, REQ_NOTIF = 3, REQ_STORAGE = 4;
+    static final int REQ_FILE = 1, REQ_LOC = 2, REQ_NOTIF = 3, REQ_STORAGE = 4, REQ_WALK = 5;
+    static volatile MainActivity live; // the page WalkService pokes when a walk ends
 
     WebView web;
     volatile String pageUrl = ""; // read from the JS bridge thread; getUrl() is UI-thread only
     ValueCallback<Uri[]> fileCb;
     GeolocationPermissions.Callback geoCb;
     String geoOrigin;
+    String walkJson;
 
     @Override protected void onCreate(Bundle saved) {
         super.onCreate(saved);
         Reminders.channel(this);
+        SyncJob.schedule(this);
         web = new WebView(this);
         web.setBackgroundColor(0xFF0E1419);
         setContentView(web);
@@ -57,6 +60,15 @@ public class MainActivity extends Activity {
         web.setWebViewClient(new Client());
         web.setWebChromeClient(new Chrome());
         if (saved == null || web.restoreState(saved) == null) web.loadUrl(START);
+        live = this;
+    }
+
+    @Override protected void onDestroy() { if (live == this) live = null; super.onDestroy(); }
+
+    /** Ask the page, if it is still in memory, to drain WalkService's queue now. */
+    static void poke() {
+        MainActivity a = live;
+        if (a != null) a.runOnUiThread(() -> a.web.evaluateJavascript("window.takeNative&&takeNative()", null));
     }
 
     @Override protected void onSaveInstanceState(Bundle out) { super.onSaveInstanceState(out); web.saveState(out); }
@@ -160,6 +172,10 @@ public class MainActivity extends Activity {
             geoCb.invoke(geoOrigin, ok, false);
             geoCb = null;
         }
+        if (req == REQ_WALK && walkJson != null) {
+            for (int r : res) if (r == PackageManager.PERMISSION_GRANTED) { WalkService.begin(this, walkJson); break; }
+            walkJson = null;
+        }
         // the page has no callback for the permission prompt; refresh its status line
         if (req == REQ_NOTIF) web.evaluateJavascript("window.renderNotif&&renderNotif()", null);
     }
@@ -168,7 +184,36 @@ public class MainActivity extends Activity {
     class Bridge {
         boolean ok() { return inApp(pageUrl); }
 
-        @JavascriptInterface public String version() { return "2.0"; }
+        @JavascriptInterface public String version() { return "3.0"; }
+
+        /** Hand the walk to WalkService so it survives the app being closed. */
+        @JavascriptInterface public void startWalk(String json) {
+            if (!ok()) return;
+            runOnUiThread(() -> {
+                if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                        || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                    WalkService.begin(MainActivity.this, json);
+                    return;
+                }
+                walkJson = json;
+                requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_WALK);
+            });
+        }
+
+        /** Setup -> Background sync, in minutes; 0 turns it off. */
+        @JavascriptInterface public void setSyncEvery(int min) {
+            if (!ok()) return;
+            Reminders.prefs(MainActivity.this).edit().putInt("syncMin", min).commit();
+            SyncJob.schedule(MainActivity.this);
+        }
+
+        /** Around each sync the page runs, so closing the app mid-sync doesn't cut it off. */
+        @JavascriptInterface public void syncing(boolean on) { if (ok()) SyncKeep.set(MainActivity.this, on); }
+
+        @JavascriptInterface public void stopWalk() { if (ok()) WalkService.cancel(MainActivity.this); }
+
+        /** Entries finished natively while the page wasn't looking, as a JSON array; empties the queue. */
+        @JavascriptInterface public String takeEntries() { return ok() ? WalkService.take(MainActivity.this) : "[]"; }
 
         @JavascriptInterface public void setPlan(String json) {
             if (!ok()) return;
