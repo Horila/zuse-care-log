@@ -84,14 +84,24 @@ header{padding:calc(14px + env(safe-area-inset-top)) 0 6px;position:sticky;top:0
 .ringwrap{display:flex;gap:16px;align-items:center;position:relative}
 .ring{width:112px;flex:none;position:relative;text-align:center}
 .hg{width:112px;height:112px;border-radius:26px;background:#0A0912;border:1px solid #2A2440;box-shadow:0 0 24px rgba(150,110,255,.18) inset;display:grid;place-items:center}
-.hg svg{display:block;overflow:visible}
-.hg .glow{filter:drop-shadow(0 0 2px #B58BF0) drop-shadow(0 0 6px #7A6BFF)}
+.hg svg{display:block;overflow:visible;transform-origin:50% 50%}
+.hg svg.flip{transition:transform .9s cubic-bezier(.6,-.2,.3,1.2);transform:rotate(180deg)}
+.hg .hgSand{transition:y .8s ease,height .8s ease,d .8s ease}
+.hg .grain{animation:hggrain 1.1s linear infinite;opacity:0}
+.hg .grain:nth-of-type(2){animation-delay:.37s}.hg .grain:nth-of-type(3){animation-delay:.74s}
+.hg .twk{animation:hgtwk 2.4s ease-in-out infinite}
+.hg .twk:nth-of-type(2n){animation-delay:.8s}.hg .twk:nth-of-type(3n){animation-delay:1.6s}
+.hg.done .grain{display:none}
+@keyframes hggrain{0%{opacity:0;transform:translateY(0)}10%{opacity:1}90%{opacity:1}100%{opacity:0;transform:translateY(var(--fall,40px))}}
+@keyframes hgtwk{0%,100%{opacity:.15}50%{opacity:1}}
+@keyframes hgbreathe{50%{filter:drop-shadow(0 0 3px #C77DFF) drop-shadow(0 0 10px #6F8BFF)}}
+.hg .glow{filter:drop-shadow(0 0 2px #B58BF0) drop-shadow(0 0 6px #7A6BFF);animation:hgbreathe 3.2s ease-in-out infinite}
 .hg #hgStream{stroke-dasharray:1.5 3;animation:hgfall .5s linear infinite}
 .hg.done #hgStream{display:none}
 .hg.over .glow{animation:hgpulse 1.6s ease-in-out infinite}
 @keyframes hgfall{to{stroke-dashoffset:-4.5}}
 @keyframes hgpulse{50%{filter:drop-shadow(0 0 3px var(--alert)) drop-shadow(0 0 9px var(--alert))}}
-@media (prefers-reduced-motion:reduce){.hg #hgStream,.hg.over .glow{animation:none}}
+@media (prefers-reduced-motion:reduce){.hg #hgStream,.hg .glow,.hg .grain,.hg .twk{animation:none}.hg svg.flip{transition:none}}
 .ringmid{margin-top:8px}
 .ringmid .big{font-family:var(--mono);font-size:22px;font-weight:600;line-height:1}
 .ringmid .lbl{font-size:9.5px;letter-spacing:.1em;white-space:nowrap;text-transform:uppercase;color:var(--dim);margin-top:5px}
@@ -259,9 +269,12 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
             <clipPath id="hgTop"><path d="M26 17H74C74 40 56 52 52.5 64H47.5C44 52 26 40 26 17Z"/></clipPath>
             <clipPath id="hgBot"><path d="M47.5 66H52.5C56 78 74 90 74 113H26C26 90 44 78 47.5 66Z"/></clipPath>
           </defs>
-          <g clip-path="url(#hgTop)"><rect class="hgT" x="20" y="22" width="60" height="42" fill="url(#hgSand)" opacity=".85"/><rect class="hgT" x="20" y="22" width="60" height="42" fill="url(#hgGlit)"/></g>
-          <g clip-path="url(#hgBot)"><path class="hgB" d="M20 113H80Z" fill="url(#hgSand)" opacity=".85"/><path class="hgB" d="M20 113H80Z" fill="url(#hgGlit)"/></g>
+          <g clip-path="url(#hgTop)"><rect class="hgT hgSand" x="20" y="22" width="60" height="42" fill="url(#hgSand)" opacity=".85"/><rect class="hgT hgSand" x="20" y="22" width="60" height="42" fill="url(#hgGlit)"/></g>
+          <g clip-path="url(#hgBot)"><path class="hgB hgSand" d="M20 113H80Z" fill="url(#hgSand)" opacity=".85"/><path class="hgB hgSand" d="M20 113H80Z" fill="url(#hgGlit)"/></g>
           <line id="hgStream" x1="50" y1="63" x2="50" y2="113" stroke="#CDB6FF" stroke-width="1.4" stroke-linecap="round"/>
+          <g fill="#F2E8FF"><circle class="grain" cx="50" cy="66" r=".9"/><circle class="grain" cx="49.4" cy="66" r=".7"/><circle class="grain" cx="50.6" cy="66" r=".8"/></g>
+          <g fill="#fff" clip-path="url(#hgTop)"><circle class="twk hgTw" cx="38" cy="30" r=".8"/><circle class="twk hgTw" cx="58" cy="36" r=".7"/><circle class="twk hgTw" cx="46" cy="44" r=".9"/><circle class="twk hgTw" cx="62" cy="26" r=".6"/><circle class="twk hgTw" cx="52" cy="54" r=".7"/></g>
+          <g fill="#fff" clip-path="url(#hgBot)"><circle class="twk hgBw" cx="36" cy="108" r=".8"/><circle class="twk hgBw" cx="60" cy="104" r=".7"/><circle class="twk hgBw" cx="48" cy="98" r=".9"/><circle class="twk hgBw" cx="68" cy="110" r=".6"/></g>
           <g class="glow" fill="none" stroke="url(#hgLine)" stroke-width="2.4" stroke-linejoin="round">
             <path d="M24 15H76C76 40 57 52 53 65C57 78 76 90 76 115H24C24 90 43 78 47 65C43 52 24 40 24 15Z"/>
             <path d="M29 19H71" stroke-width="1" opacity=".45"/>
@@ -1190,18 +1203,36 @@ function setHomeLocation(){
 /* The hourglass: frac 0 = full top bulb (just dosed), 1 = all sand fallen
    (the 12-hour mark). Top sand sinks, the bottom heap rises. */
 function hgFill(frac){
-  const ty=22+frac*42, by=113-frac*38, pk=by-7;
+  // The bulbs taper, so equal time is equal volume, not equal height: the
+  // top level falls slowly at first, the bottom heap rises fast at first.
+  const r=Math.sqrt(1-Math.min(Math.max(frac,0),1)), ty=64-42*r, by=113-38*(1-r), pk=by-7;
   const d=frac<=0?'M20 113H80Z':`M20 113V${(by+4).toFixed(1)}Q50 ${pk.toFixed(1)} 80 ${(by+4).toFixed(1)}V113Z`;
   document.querySelectorAll('.hgT').forEach(r=>{r.setAttribute('y',ty.toFixed(1));r.setAttribute('height',Math.max(0,64-ty).toFixed(1))});
   document.querySelectorAll('.hgB').forEach(p=>p.setAttribute('d',d));
   document.getElementById('hgStream').setAttribute('y2',Math.max(66,pk+3.5).toFixed(1));
+  document.querySelectorAll('.hgTw').forEach(c=>c.style.display=+c.getAttribute('cy')<ty?'none':'');
+  document.querySelectorAll('.hgBw').forEach(c=>c.style.display=+c.getAttribute('cy')<by?'none':'');
+  document.getElementById('hg').style.setProperty('--fall',Math.max(4,pk-64).toFixed(1)+'px');
+}
+/* Turn the glass over when a newer shot appears (logged here, by the widget or
+   pulled from the sheet): spin it with the sand all at the bottom, so upside
+   down it is a full top bulb, then swap back to upright-and-full with no motion. */
+let hgShot=null,hgBusy=false;
+function hgFlip(after){
+  const svg=document.querySelector('#hg svg');
+  if(matchMedia('(prefers-reduced-motion: reduce)').matches){after();return}
+  hgBusy=true;svg.querySelectorAll('.hgSand').forEach(e=>e.style.transition='none');
+  hgFill(1);document.getElementById('hg').classList.add('done');
+  requestAnimationFrame(()=>requestAnimationFrame(()=>svg.classList.add('flip')));
+  setTimeout(()=>{svg.style.transition='none';svg.classList.remove('flip');hgFill(0);svg.getBoundingClientRect();
+    svg.style.transition='';svg.querySelectorAll('.hgSand').forEach(e=>e.style.transition='');hgBusy=false;after()},950);
 }
 function renderRing(){
   const last=lastOf('insulin'), now=new Date();
   const hg=document.getElementById('hg');
   const st=document.getElementById('state'), stx=document.getElementById('stateTx');
   if(!last){
-    hgFill(0);hg.className='hg done';
+    hgShot=null;hgFill(0);hg.className='hg done';
     document.getElementById('ringBig').textContent='—';
     document.getElementById('ringLbl').textContent='no shots yet';
     document.getElementById('hTitle').textContent='No insulin logged';
@@ -1212,13 +1243,16 @@ function renderRing(){
   // A clock tick between "now" being read here and the shot's own timestamp
   // can put it a second in the future; without the clamp that floors to "-1h 00".
   const mins=Math.max(0,(now-last)/6e4), gap=cfg.gap*60, frac=Math.min(mins/gap,1);
+  const prev=hgShot;hgShot=+last;
+  if(prev!=null&&+last>prev){hgFlip(renderRing);return}
+  if(hgBusy)return;
   hgFill(frac);
-  const h=Math.floor(mins/60), m=Math.round(mins%60);
-  document.getElementById('ringBig').textContent=`${h}h ${pad(m)}`;
-  document.getElementById('ringLbl').textContent='since last shot';
-  const left=gap-mins;
+  const left=gap-mins, al=Math.abs(left), lh=Math.floor(al/60), lm=Math.floor(al%60);
+  document.getElementById('ringBig').textContent=`${left<0?'+':''}${lh}h ${pad(lm)}`;
+  document.getElementById('ringLbl').textContent=left<0?'overdue':'until next shot';
   let col,label,sub;
-  if(left>60){col='--food';label='On track';sub=`Next shot in ${Math.floor(left/60)}h ${pad(Math.round(left%60))}m.`}
+  const since=`${Math.floor(mins/60)}h ${pad(Math.floor(mins%60))}m since the last shot.`;
+  if(left>60){col='--food';label='On track';sub=since}
   else if(left>0){col='--insulin';label='Due soon';sub=`Next shot in ${Math.round(left)} minutes.`}
   else if(left>-90){col='--insulin';label='Due now';sub=`Overdue by ${Math.round(-left)} minutes.`}
   else{col='--alert';label='Overdue';sub=`${Math.floor(-left/60)}h ${pad(Math.round(-left%60))}m past the 12-hour mark.`}
