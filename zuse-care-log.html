@@ -82,11 +82,19 @@ header{padding:calc(14px + env(safe-area-inset-top)) 0 6px;position:sticky;top:0
 .hero{margin-top:14px;background:var(--surf);border:1px solid var(--line);border-radius:22px;padding:18px;position:relative;overflow:hidden}
 .hero:before{content:'';position:absolute;inset:-40% -20% auto;height:200px;background:radial-gradient(closest-side,rgba(255,178,63,.16),transparent);pointer-events:none}
 .ringwrap{display:flex;gap:16px;align-items:center;position:relative}
-.ring{width:132px;height:132px;flex:none;position:relative}
-.ring svg{transform:rotate(-90deg);display:block}
-.ringmid{position:absolute;inset:0;display:grid;place-content:center;text-align:center}
-.ringmid .big{font-family:var(--mono);font-size:26px;font-weight:600;line-height:1}
-.ringmid .lbl{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin-top:5px}
+.ring{width:112px;flex:none;position:relative;text-align:center}
+.hg{width:112px;height:112px;border-radius:26px;background:#0A0912;border:1px solid #2A2440;box-shadow:0 0 24px rgba(150,110,255,.18) inset;display:grid;place-items:center}
+.hg svg{display:block;overflow:visible}
+.hg .glow{filter:drop-shadow(0 0 2px #B58BF0) drop-shadow(0 0 6px #7A6BFF)}
+.hg #hgStream{stroke-dasharray:1.5 3;animation:hgfall .5s linear infinite}
+.hg.done #hgStream{display:none}
+.hg.over .glow{animation:hgpulse 1.6s ease-in-out infinite}
+@keyframes hgfall{to{stroke-dashoffset:-4.5}}
+@keyframes hgpulse{50%{filter:drop-shadow(0 0 3px var(--alert)) drop-shadow(0 0 9px var(--alert))}}
+@media (prefers-reduced-motion:reduce){.hg #hgStream,.hg.over .glow{animation:none}}
+.ringmid{margin-top:8px}
+.ringmid .big{font-family:var(--mono);font-size:22px;font-weight:600;line-height:1}
+.ringmid .lbl{font-size:9.5px;letter-spacing:.1em;white-space:nowrap;text-transform:uppercase;color:var(--dim);margin-top:5px}
 .hinfo h2{font-size:15px;font-weight:600}
 .hinfo p{margin:5px 0 0;font-size:13.5px;color:var(--mu)}
 .state{display:inline-flex;align-items:center;gap:6px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:4px 9px;border-radius:99px;border:1px solid;margin-bottom:8px}
@@ -243,11 +251,24 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
   <div class="hero">
     <div class="ringwrap">
       <div class="ring">
-        <svg viewBox="0 0 120 120" width="132" height="132">
-          <circle cx="60" cy="60" r="52" fill="none" stroke="#22303A" stroke-width="9"/>
-          <circle id="arc" cx="60" cy="60" r="52" fill="none" stroke="var(--insulin)" stroke-width="9"
-                  stroke-linecap="round" stroke-dasharray="326.7" stroke-dashoffset="326.7"/>
-        </svg>
+        <div class="hg" id="hg"><svg viewBox="0 0 100 130" width="74" height="96" aria-hidden="true">
+          <defs>
+            <linearGradient id="hgLine" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C77DFF"/><stop offset=".5" stop-color="#6F8BFF"/><stop offset="1" stop-color="#A66BFF"/></linearGradient>
+            <linearGradient id="hgSand" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#B05CFF"/><stop offset=".55" stop-color="#7FA8FF"/><stop offset="1" stop-color="#D07BFF"/></linearGradient>
+            <pattern id="hgGlit" width="17" height="13" patternUnits="userSpaceOnUse"><circle cx="5.5" cy="2.0" r="0.6" fill="#fff" opacity="0.5"/><circle cx="14.0" cy="1.2" r="0.6" fill="#fff" opacity="0.9"/><circle cx="3.6" cy="1.1" r="0.45" fill="#fff" opacity="0.5"/><circle cx="1.5" cy="5.5" r="0.6" fill="#fff" opacity="0.5"/><circle cx="10.7" cy="7.6" r="0.35" fill="#9FE0FF" opacity="0.9"/><circle cx="6.7" cy="12.7" r="0.35" fill="#9FE0FF" opacity="0.5"/><circle cx="4.9" cy="1.9" r="0.35" fill="#9FE0FF" opacity="0.7"/><circle cx="9.5" cy="8.9" r="0.35" fill="#9FE0FF" opacity="0.9"/><circle cx="10.9" cy="4.8" r="0.6" fill="#9FE0FF" opacity="0.5"/></pattern>
+            <clipPath id="hgTop"><path d="M26 17H74C74 40 56 52 52.5 64H47.5C44 52 26 40 26 17Z"/></clipPath>
+            <clipPath id="hgBot"><path d="M47.5 66H52.5C56 78 74 90 74 113H26C26 90 44 78 47.5 66Z"/></clipPath>
+          </defs>
+          <g clip-path="url(#hgTop)"><rect class="hgT" x="20" y="22" width="60" height="42" fill="url(#hgSand)" opacity=".85"/><rect class="hgT" x="20" y="22" width="60" height="42" fill="url(#hgGlit)"/></g>
+          <g clip-path="url(#hgBot)"><path class="hgB" d="M20 113H80Z" fill="url(#hgSand)" opacity=".85"/><path class="hgB" d="M20 113H80Z" fill="url(#hgGlit)"/></g>
+          <line id="hgStream" x1="50" y1="63" x2="50" y2="113" stroke="#CDB6FF" stroke-width="1.4" stroke-linecap="round"/>
+          <g class="glow" fill="none" stroke="url(#hgLine)" stroke-width="2.4" stroke-linejoin="round">
+            <path d="M24 15H76C76 40 57 52 53 65C57 78 76 90 76 115H24C24 90 43 78 47 65C43 52 24 40 24 15Z"/>
+            <path d="M29 19H71" stroke-width="1" opacity=".45"/>
+            <rect x="14" y="5" width="72" height="9" rx="3.5"/>
+            <rect x="14" y="116" width="72" height="9" rx="3.5"/>
+          </g>
+        </svg></div>
         <div class="ringmid"><div class="big" id="ringBig">--:--</div><div class="lbl" id="ringLbl">since shot</div></div>
       </div>
       <div class="hinfo">
@@ -1166,12 +1187,21 @@ function setHomeLocation(){
 }
 
 /* ---------------- ring ---------------- */
+/* The hourglass: frac 0 = full top bulb (just dosed), 1 = all sand fallen
+   (the 12-hour mark). Top sand sinks, the bottom heap rises. */
+function hgFill(frac){
+  const ty=22+frac*42, by=113-frac*38, pk=by-7;
+  const d=frac<=0?'M20 113H80Z':`M20 113V${(by+4).toFixed(1)}Q50 ${pk.toFixed(1)} 80 ${(by+4).toFixed(1)}V113Z`;
+  document.querySelectorAll('.hgT').forEach(r=>{r.setAttribute('y',ty.toFixed(1));r.setAttribute('height',Math.max(0,64-ty).toFixed(1))});
+  document.querySelectorAll('.hgB').forEach(p=>p.setAttribute('d',d));
+  document.getElementById('hgStream').setAttribute('y2',Math.max(66,pk+3.5).toFixed(1));
+}
 function renderRing(){
   const last=lastOf('insulin'), now=new Date();
-  const arc=document.getElementById('arc'), C=2*Math.PI*52;
+  const hg=document.getElementById('hg');
   const st=document.getElementById('state'), stx=document.getElementById('stateTx');
   if(!last){
-    arc.style.strokeDashoffset=C;
+    hgFill(0);hg.className='hg done';
     document.getElementById('ringBig').textContent='—';
     document.getElementById('ringLbl').textContent='no shots yet';
     document.getElementById('hTitle').textContent='No insulin logged';
@@ -1182,7 +1212,7 @@ function renderRing(){
   // A clock tick between "now" being read here and the shot's own timestamp
   // can put it a second in the future; without the clamp that floors to "-1h 00".
   const mins=Math.max(0,(now-last)/6e4), gap=cfg.gap*60, frac=Math.min(mins/gap,1);
-  arc.style.strokeDashoffset=C*(1-frac);
+  hgFill(frac);
   const h=Math.floor(mins/60), m=Math.round(mins%60);
   document.getElementById('ringBig').textContent=`${h}h ${pad(m)}`;
   document.getElementById('ringLbl').textContent='since last shot';
@@ -1192,7 +1222,7 @@ function renderRing(){
   else if(left>0){col='--insulin';label='Due soon';sub=`Next shot in ${Math.round(left)} minutes.`}
   else if(left>-90){col='--insulin';label='Due now';sub=`Overdue by ${Math.round(-left)} minutes.`}
   else{col='--alert';label='Overdue';sub=`${Math.floor(-left/60)}h ${pad(Math.round(-left%60))}m past the 12-hour mark.`}
-  arc.style.stroke=cvar(col);
+  hg.className='hg'+(frac>=1?' done':'')+(col==='--alert'?' over':'');
   st.style.color=cvar(col);st.style.borderColor=cvar(col)+'55';stx.textContent=label;
   document.getElementById('hTitle').textContent=`Last shot ${pad(last.getHours())}:${pad(last.getMinutes())}`;
   document.getElementById('hSub').textContent=sub;
