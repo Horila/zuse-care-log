@@ -45,24 +45,26 @@ select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,va
 
 /* header */
 header{padding:calc(14px + env(safe-area-inset-top)) 0 6px;position:sticky;top:0;z-index:40;background:linear-gradient(180deg,var(--bg) 72%,transparent)}
-.floatSync{position:fixed;top:calc(58px + env(safe-area-inset-top));right:14px;z-index:50;min-width:60px;height:60px;padding:4px 8px;border-radius:16px;background:var(--surf2);border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;font-size:23px;color:var(--mu);box-shadow:0 2px 10px rgba(0,0,0,.25)}
-.floatSync .t{font-size:9.5px;font-family:monospace;opacity:.8;line-height:1}
-.floatSync:active{transform:scale(.94)}
-/* A tap on a fixed button gives no feedback of its own, so a sync that takes a
-   few seconds looks like a press that never registered. Spin while it runs. */
-@keyframes spin{to{transform:rotate(360deg)}}
-.floatSync.busy{border-color:var(--insulin);color:var(--insulin)}
-.floatSync.busy .ic{display:block;animation:spin .9s linear infinite}
-@media (prefers-reduced-motion:reduce){.floatSync.busy .ic{animation:pulse 1s ease-in-out infinite!important}}
-.hrow{display:flex;align-items:center;gap:11px}
-.pip{width:38px;height:38px;border-radius:12px;background:linear-gradient(150deg,#2C3B47,#16202A);display:grid;place-items:center;font-size:20px;border:1px solid var(--line)}
+/* A sync that takes a few seconds looks like a press that never registered.
+   Spin while it runs; the 🔄 arrows point anticlockwise, so spin that way. */
+@keyframes spinr{to{transform:rotate(-360deg)}}
+#floatSync{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;font-size:14px;line-height:1}
+#floatSync .t{font:600 8.5px var(--mono);letter-spacing:-.03em}
+#floatSync .t:empty{display:none}
+#floatSync.busy{border-color:var(--insulin);color:var(--insulin)}
+#floatSync.busy .ic{display:block;animation:spinr .9s linear infinite}
+@media (prefers-reduced-motion:reduce){#floatSync.busy .ic{animation:pulse 1s ease-in-out infinite!important}}
+.hrow{display:flex;align-items:center;gap:9px}
+.pip{position:relative;flex:none;color:inherit;width:38px;height:38px;border-radius:12px;background:linear-gradient(150deg,#2C3B47,#16202A);display:grid;place-items:center;font-size:20px;border:1px solid var(--line)}
+.pip::after{content:"⇄";position:absolute;right:-5px;bottom:-5px;width:15px;height:15px;border-radius:99px;background:var(--surf2);border:1px solid var(--line);display:grid;place-items:center;font-size:9px;color:var(--mu)}
+.hid{min-width:0}
 .hname{font-family:var(--dsp);font-weight:700;font-size:19px;line-height:1}
-.hsub{font-size:11.5px;color:var(--dim);letter-spacing:.14em;text-transform:uppercase;margin-top:3px}
+.hsub{font-size:11px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 html[data-pet] .hero{display:none}
-.hclock{margin-left:auto;text-align:right}
+.hclock{margin-left:auto;text-align:right;flex:none}
 .hclock b{font-family:var(--mono);font-size:19px;display:block;line-height:1.1}
 .hclock span{font-size:11px;color:var(--dim)}
-.hctrl{display:flex;gap:8px}
+.hctrl{display:flex;gap:6px;flex:none}
 .hbtn{width:34px;height:34px;border-radius:10px;background:var(--surf2);border:1px solid var(--line);display:grid;place-items:center;font-size:16px;color:var(--mu);flex:none}
 .hbtn.on{background:var(--insulin);color:#1C1200;border-color:var(--insulin)}
 
@@ -106,9 +108,12 @@ html[data-pet] .hero{display:none}
 .ringmid{margin-top:8px}
 .ringmid .big{font-family:var(--mono);font-size:22px;font-weight:600;line-height:1}
 .ringmid .lbl{font-size:9.5px;letter-spacing:.1em;white-space:nowrap;text-transform:uppercase;color:var(--dim);margin-top:5px}
-.hinfo h2{font-size:15px;font-weight:600}
-.hinfo p{margin:5px 0 0;font-size:13.5px;color:var(--mu)}
-.state{display:inline-flex;align-items:center;gap:6px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:4px 9px;border-radius:99px;border:1px solid;margin-bottom:8px}
+.hinfo{flex:1;min-width:0}
+.hinfo h2{font-size:21px;font-weight:600;line-height:1.15}
+.hinfo p{margin:6px 0 0;font-size:16px;color:var(--mu)}
+.hinfo p.more{font-size:14px;color:var(--dim)}
+.hinfo p:empty{display:none}
+.state{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;letter-spacing:.1em;text-transform:uppercase;padding:5px 11px;border-radius:99px;border:1px solid;margin-bottom:9px}
 .dot{width:6px;height:6px;border-radius:99px;background:currentColor}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .dot.live{animation:pulse 2.4s infinite}
@@ -118,9 +123,13 @@ html[data-pet] .hero{display:none}
 .duehead{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px}
 .duehead h3{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--mu)}
 .duehead em{font-style:normal;font-family:var(--mono);font-size:12px;color:var(--dim)}
-.checks{display:flex;flex-wrap:wrap;gap:7px}
-.chk{display:flex;align-items:center;gap:7px;padding:8px 11px;border-radius:11px;background:var(--surf2);border:1px solid var(--line);font-size:13px;transition:.15s}
-.chk .box{width:15px;height:15px;border-radius:5px;border:1.5px solid var(--dim);flex:none;display:grid;place-items:center;font-size:10px;color:var(--bg)}
+.checks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.chk{display:flex;align-items:center;gap:9px;width:100%;min-height:56px;padding:9px 10px;text-align:left;border-radius:12px;background:var(--surf2);border:1px solid var(--line);font-size:15px;transition:.15s}
+.chk .nm{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;line-height:1.15}
+.chk .nm b{font-weight:600;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chk .nm small{font-size:12.5px;opacity:.7;font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chk .box{width:20px;height:20px;border-radius:6px;border:1.5px solid var(--dim);flex:none;display:grid;place-items:center;font-size:13px;color:var(--bg)}
+.chk.arm{border-color:var(--insulin);box-shadow:0 0 0 1px var(--insulin) inset;color:var(--insulin)}
 .chk.on{background:rgba(111,208,140,.1);border-color:rgba(111,208,140,.4);color:#BDEBCC}
 .chk.on .box{background:var(--food);border-color:var(--food)}
 .chk:active{transform:scale(.96)}
@@ -235,15 +244,15 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
 <div class="wrap">
 <header>
   <div class="hrow">
-    <div class="pip">🐕</div>
-    <div>
+    <button class="pip" id="btnPet" onclick="switchPet()" title="Switch dog">🐕</button>
+    <div class="hid">
       <div class="hname" id="hname">Zuse</div>
       <div class="hsub" id="hsub">Diabetic care log</div>
     </div>
     <div class="hctrl">
-      <button class="hbtn" id="btnPet" onclick="switchPet()" title="Switch dog">🐶</button>
       <button class="hbtn" id="btnWake" onclick="toggleWake()" title="Keep screen awake">💡</button>
       <button class="hbtn" id="btnTheme" onclick="toggleTheme()" title="Toggle theme">🌙</button>
+      <button class="hbtn" id="floatSync" onclick="syncNow()" title="Sync with Google Sheet"><span class="ic">🔄</span><span class="t" id="floatSyncTime"></span></button>
     </div>
     <div class="hclock"><b id="clock">--:--</b><span id="today">—</span></div>
   </div>
@@ -258,8 +267,6 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
     <button class="btn" style="width:auto;margin:0;padding:8px 14px;font-size:13px" onclick="endVet()">End Visit</button>
   </div>
 </header>
-
-<button class="floatSync" id="floatSync" onclick="syncNow()" title="Sync with Google Sheet"><span class="ic">🔄</span><span class="t" id="floatSyncTime"></span></button>
 
 <!-- ============ TODAY ============ -->
 <div class="view on" id="v-today">
@@ -293,6 +300,7 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
         <div class="state" id="state"><span class="dot live"></span><span id="stateTx">Loading</span></div>
         <h2 id="hTitle">Insulin</h2>
         <p id="hSub">Checking the log…</p>
+        <p class="more" id="hMore"></p>
       </div>
     </div>
 
@@ -1360,6 +1368,7 @@ function renderRing(){
     document.getElementById('ringLbl').textContent='no shots yet';
     document.getElementById('hTitle').textContent='No insulin logged';
     document.getElementById('hSub').textContent='Tap 💉 below to record the first shot.';
+    document.getElementById('hMore').textContent='';
     st.style.color=cvar('--mu');st.style.borderColor=cvar('--line');stx.textContent='Waiting';
     return;
   }
@@ -1383,6 +1392,10 @@ function renderRing(){
   st.style.color=cvar(col);st.style.borderColor=cvar(col)+'55';stx.textContent=label;
   document.getElementById('hTitle').textContent=`Last shot ${pad(last.getHours())}:${pad(last.getMinutes())}`;
   document.getElementById('hSub').textContent=sub;
+  // next round = the current one, unless its insulin is already in, then the other
+  const w=currentRoutine(), ii=cfg[w].findIndex(r=>r[0]==='insulin'), nx=ii>=0&&routineDone(w)[ii]?(w==='am'?'pm':'am'):w;
+  const shots=byDate(iso(now)).filter(e=>e.type==='insulin').length;
+  document.getElementById('hMore').textContent=`Next round ${fmt12(nx==='am'?cfg.amTime:cfg.pmTime)} · ${cfg.insulin} units · ${shots} of 2 shots today`;
 }
 
 /* ---------------- routine checklist ---------------- */
@@ -1411,6 +1424,7 @@ function chickenQty(defaultQty){
   const n=+v;
   return n>0?n:defaultQty;
 }
+let armedChk='',armedAt=0,armTimer=0;
 function renderChecks(){
   const w=currentRoutine(), list=cfg[w], done=routineDone(w);
   document.getElementById('routineName').textContent=w==='am'?'Morning routine':'Night routine';
@@ -1418,10 +1432,15 @@ function renderChecks(){
   const box=document.getElementById('checks');box.innerHTML='';
   list.forEach(([ty,q],i)=>{
     const b=document.createElement('button');
-    b.className='chk'+(done[i]?' on':'');
-    b.innerHTML=`<span class="box">${done[i]?'✓':''}</span>${T[ty].i} ${T[ty].n.split(' ')[0]} <span class="mono" style="opacity:.65">${q}</span>`;
+    const k=w+i, arm=armedChk===k&&!done[i];
+    b.className='chk'+(done[i]?' on':'')+(arm?' arm':'');
+    b.innerHTML=`<span class="box">${done[i]?'✓':''}</span><span class="nm">${arm?`<b>Tap again</b><small>to log it</small>`:`<b>${T[ty].n.split(' ')[0]}</b><small>${T[ty].i} ${q}</small>`}</span>`;
     b.onclick=()=>{
       if(done[i]){toast(T[ty].n+' already logged');return}
+      // first tap arms (3s), second tap on the same item logs; <350ms is a double-tap, ignored
+      if(armedChk!==k){armedChk=k;armedAt=Date.now();clearTimeout(armTimer);armTimer=setTimeout(()=>{armedChk='';renderChecks()},3e3);renderChecks();return}
+      if(Date.now()-armedAt<350)return;
+      armedChk='';clearTimeout(armTimer);
       if(ty==='insulin'&&!insulinGuardOk())return;
       let qty=q;
       if(ty==='chicken'){qty=chickenQty(q);if(qty===null)return}
@@ -2755,10 +2774,9 @@ document.addEventListener('click',ev=>{
 
 /* ---------------- boot ---------------- */
 function renderSyncFab(){
-  const el=document.getElementById('floatSyncTime');
-  if(!el)return;
   const d=cfg.lastSync?new Date(cfg.lastSync):null;
-  el.textContent=d?`${pad(d.getHours())}:${pad(d.getMinutes())}`:'';
+  document.getElementById('floatSyncTime').textContent=d?`${pad(d.getHours())}:${pad(d.getMinutes())}`:'';
+  document.getElementById('hsub').textContent=`${entries.length} entries`;
 }
 function renderAll(){
   sortEntries();renderRing();renderChecks();renderToday();renderGlance();renderRoutineCards();renderStockWarn();renderSyncFab();
@@ -2770,14 +2788,14 @@ function renderAll(){
 function tick(){
   const n=new Date();
   document.getElementById('clock').textContent=hm(n);
-  document.getElementById('today').textContent=n.toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'short'});
+  document.getElementById('today').textContent=n.toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'});
   renderRing();renderWalkBar();renderVetBar();
 }
 (async function(){
   await load();mergeCustomTypes();window.zuseReady=1;
   if(PET){
     document.documentElement.setAttribute('data-pet',PET);document.title='Reggie — Care Log';
-    document.getElementById('hname').textContent='Reggie';document.getElementById('btnPet').title='Switch to Zuse';
+    document.getElementById('hname').textContent='Reggie';document.getElementById('btnPet').title='Switch to Zuse';document.getElementById('btnPet').firstChild.nodeValue='🐶';
     // Zuse's medicines stay out of Reggie's pickers; a sheet row naming one still pulls in as itself
     ['insulin','samylin','pred','para','synulox','cerenia','chicken','carrot','treat','glucose','urine','food','dose'].forEach(k=>{if(T[k])T[k].h=1});
     // In the Android app, the page left in memory must be Zuse's: the app refreshes his insulin reminders from it.
@@ -2792,7 +2810,6 @@ function tick(){
   renderAll();renderWalkBar();renderVetBar();takeNative();if(walkState)armWalkAutoEnd();
   if(vetState){openVetSheet();toast('Vet visit resumed');}
   tick();setInterval(tick,20000);
-  document.getElementById('hsub').textContent=`${entries.length} entries logged`;
   if('serviceWorker' in navigator){
     navigator.serviceWorker.register('sw.js').then(reg=>{registerPeriodicSync(reg)}).catch(()=>{});
     navigator.serviceWorker.addEventListener('message',ev=>{
