@@ -16,6 +16,7 @@ import android.webkit.WebViewClient;
  * hidden WebView and letting its own autoSync run: one sync implementation, not two.
  * Afterwards the page's fresh notification plan is handed to Reminders, so a shot logged
  * on another phone cancels this phone's "insulin not logged" alert.
+ * With the app closed it does Zuse's page first, then Reggie's (?pet=reggie) in the same WebView.
  * Doze defers it to the phone's maintenance windows; that is the ceiling.
  */
 public class SyncJob extends JobService {
@@ -24,6 +25,9 @@ public class SyncJob extends JobService {
 
     WebView web;
     boolean own; // false: web is the open app's page, which isn't ours to destroy
+    String pet = ""; // whose page the hidden WebView is on: '' (Zuse) first, then 'reggie'
+    boolean started; // this page load has been seen finishing
+    long t0;
     final Handler h = new Handler(Looper.getMainLooper());
 
     /** Every Setup -> "Background sync" minutes (prefs syncMin, default 30, 0 = off; Android's floor is 15). */
@@ -56,18 +60,18 @@ public class SyncJob extends JobService {
             h.postDelayed(() -> done(p), 240_000);
             return true;
         }
-        web = new WebView(this); own = true;
+        web = new WebView(this); own = true; pet = ""; t0 = System.currentTimeMillis();
         web.getSettings().setJavaScriptEnabled(true);
         web.getSettings().setDomStorageEnabled(true);
         web.getSettings().setDatabaseEnabled(true);
         web.setWebViewClient(new WebViewClient() {
-            boolean started;
             @Override public void onPageFinished(WebView v, String url) {
                 if (started) return;
                 started = true;
                 h.postDelayed(() -> ready(p, System.currentTimeMillis() + 30_000), 1000);
             }
         });
+        started = false;
         web.loadUrl(MainActivity.START);
         h.postDelayed(() -> done(p), 240_000); // never hold the job longer than this
         return true;
@@ -75,7 +79,7 @@ public class SyncJob extends JobService {
 
     /**
      * Wait for the page to have loaded its log (zuseReady), then hand it the native queue:
-     * widget taps and finished walks. Taking the queue before that would log into an
+     * this dog's widget taps and finished walks. Taking the queue before that would log into an
      * empty list and save it over the real one.
      */
     void ready(JobParameters p, long deadline) {
@@ -87,7 +91,7 @@ public class SyncJob extends JobService {
                 else done(p); // offline error page, or an old page: leave the queue for next time
                 return;
             }
-            String q = WalkService.take(this);
+            String q = WalkService.takeFor(this, pet);
             web.evaluateJavascript("takeNative(" + org.json.JSONObject.quote(q) + ")", null);
             h.postDelayed(() -> poll(p, System.currentTimeMillis() + 180_000), 1000);
         });
@@ -102,8 +106,15 @@ public class SyncJob extends JobService {
             if (!own) { done(p); return; }
             web.evaluateJavascript(PLAN, json -> {
                 try { // evaluateJavascript hands back the string JSON-quoted
-                    if (json != null && json.startsWith("\"")) Reminders.setPlan(this, new org.json.JSONArray("[" + json + "]").getString(0));
+                    if (json != null && json.startsWith("\"")) Reminders.setPlanFor(this, pet, new org.json.JSONArray("[" + json + "]").getString(0));
                 } catch (Exception ignored) { }
+                if (web == null) return;
+                // Zuse is always done first; Reggie only if the 240s cap leaves room for his page
+                if (pet.isEmpty() && System.currentTimeMillis() - t0 < 200_000) {
+                    pet = "reggie"; started = false;
+                    web.loadUrl(MainActivity.START + "?pet=reggie");
+                    return;
+                }
                 done(p);
             });
         });

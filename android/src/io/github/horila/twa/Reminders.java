@@ -33,16 +33,35 @@ public class Reminders extends BroadcastReceiver {
         arm(ctx);
     }
 
-    /** Replace the whole plan with json {"items":[{id,at,title,body}]}, dropping past items, then arm. */
-    static synchronized void setPlan(Context ctx, String json) throws Exception {
+    /** Zuse's plan. */
+    static void setPlan(Context ctx, String json) throws Exception { setPlanFor(ctx, "", json); }
+
+    /**
+     * Replace one dog's part of the plan with json {"items":[{id,at,title,body}]}, dropping past items, then arm.
+     * The stored plan is one list for both dogs: Zuse's items are untagged and keep their ids (as before), another
+     * dog's carry "pet" and an id prefixed with it, so ids can't collide and replacing one dog's items never touches
+     * the other's. The one alarm walks the union.
+     */
+    static synchronized void setPlanFor(Context ctx, String pet, String json) throws Exception {
+        if (pet == null) pet = "";
+        String pre = pet.isEmpty() ? "" : pet + ":";
         JSONArray in = new JSONObject(json).optJSONArray("items");
-        JSONArray keep = new JSONArray();
+        JSONArray keep = new JSONArray(), old = load(ctx);
+        for (int i = 0; i < old.length(); i++) { // the other dogs' items stay exactly as they are
+            JSONObject it = old.optJSONObject(i);
+            if (it != null && !it.optString("pet", "").equals(pet)) keep.put(it);
+        }
         long now = System.currentTimeMillis();
         JSONObject fired = fired(ctx); // fireDue posts up to 60s early; don't re-plan what already went off
         if (in != null) for (int i = 0; i < in.length(); i++) {
             JSONObject it = in.getJSONObject(i);
-            String id = it.optString("id");
-            if (it.optLong("at", 0) > now && !id.isEmpty() && fired.optLong(id, -1) != it.optLong("at")) keep.put(it);
+            String id = pre + it.optString("id");
+            if (it.optLong("at", 0) > now && !it.optString("id").isEmpty() && fired.optLong(id, -1) != it.optLong("at")) {
+                it.put("id", id);
+                if (pet.isEmpty()) it.remove("pet"); // Zuse's items stay untagged
+                else it.put("pet", pet);
+                keep.put(it);
+            }
         }
         prefs(ctx).edit().putString(KEY, keep.toString()).commit();
         arm(ctx);

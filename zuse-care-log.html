@@ -60,7 +60,7 @@ header{padding:calc(14px + env(safe-area-inset-top)) 0 6px;position:sticky;top:0
 .hid{min-width:0}
 .hname{font-family:var(--dsp);font-weight:700;font-size:19px;line-height:1}
 .hsub{font-size:11px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-html[data-pet] .hero{display:none}
+html[data-pet] .zonly{display:none!important} /* Zuse-only setup rows: insulin dose, shot gap, missed-shot alert, vet glucose */
 .hclock{margin-left:auto;text-align:right;flex:none}
 .hclock b{font-family:var(--mono);font-size:19px;display:block;line-height:1.1}
 .hclock span{font-size:11px;color:var(--dim)}
@@ -257,9 +257,9 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
     <div class="hclock"><b id="clock">--:--</b><span id="today">—</span></div>
   </div>
   <div class="walkbar" id="walkBar">
-    <span>🦮 Walking — <b class="mono" id="walkElapsed">0h 00m</b></span>
+    <span><span id="walkLbl">🦮 Walking</span> — <b class="mono" id="walkElapsed">0h 00m</b></span>
     <button class="btn sec" id="walkMapBtn" style="width:auto;margin:0;padding:8px 12px;font-size:13px;white-space:nowrap;display:none" onclick="openLiveMap()" title="Live route" aria-label="Live route">🗺</button>
-    <button class="btn" style="width:auto;margin:0;padding:8px 14px;font-size:13px;white-space:nowrap" onclick="endWalk()">End Walk</button>
+    <button class="btn" id="walkEnd" style="width:auto;margin:0;padding:8px 14px;font-size:13px;white-space:nowrap" onclick="endWalk()">End Walk</button>
   </div>
   <div class="walkbar" id="vetBar">
     <span>🏥 At the vets — <b class="mono" id="vetElapsed">0h 00m</b></span>
@@ -413,12 +413,12 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
   <section>
     <div class="shead"><h2>Doses</h2></div>
     <div class="card">
-      <div class="fld"><label>Insulin dose (units)</label><input id="sInsulin" type="number" step="0.5" inputmode="decimal"></div>
+      <div class="fld zonly"><label>Insulin dose (units)</label><input id="sInsulin" type="number" step="0.5" inputmode="decimal"></div>
       <div class="two">
         <div class="fld"><label>Morning time</label><input id="sAm" type="time"></div>
         <div class="fld"><label>Night time</label><input id="sPm" type="time"></div>
       </div>
-      <div class="fld"><label>Hours between shots</label><input id="sGap" type="number" step="0.5" inputmode="decimal"></div>
+      <div class="fld zonly"><label>Hours between shots</label><input id="sGap" type="number" step="0.5" inputmode="decimal"></div>
       <div class="fld" style="margin-bottom:0"><label>Carer name (this phone)</label><input id="sCarer" placeholder="added to the notes of what you log"></div>
     </div>
   </section>
@@ -461,7 +461,7 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
         <div class="fld"><label>Feeding reminder, morning</label><input id="nFeedAm" type="time"></div>
         <div class="fld"><label>Feeding reminder, night</label><input id="nFeedPm" type="time"></div>
       </div>
-      <label class="note" style="display:flex;gap:9px;align-items:center;margin-bottom:9px"><input type="checkbox" id="nMiss" style="width:auto"> Alert when a shot is still not logged 30 minutes after its time</label>
+      <label class="note zonly" style="display:flex;gap:9px;align-items:center;margin-bottom:9px"><input type="checkbox" id="nMiss" style="width:auto"> Alert when a shot is still not logged 30 minutes after its time</label>
       <label class="note" style="display:flex;gap:9px;align-items:center"><input type="checkbox" id="nStock" style="width:auto"> Alert when stock is running low</label>
       <button class="btn sec" style="margin-top:12px" onclick="testNotif()">Send a test notification</button>
     </div>
@@ -475,12 +475,12 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
     </div>
     <button class="btn sec" style="margin-top:9px" onclick="saveSyncCfg()">Save sync settings</button>
     <button class="btn" style="margin-top:9px" id="syncBtn" onclick="syncNow()">Sync with Google Sheet</button>
-    <a class="btn sec" style="margin-top:9px;display:block;text-align:center" href="https://docs.google.com/spreadsheets/d/1e6t7GPNNgzsLaPqETFxSmcDoJ-VWs0VEwkEWOhzvF4c/edit?usp=sharing" target="_blank" rel="noopener">Open Google Sheet</a>
+    <a class="btn sec zonly" style="margin-top:9px;display:block;text-align:center" href="https://docs.google.com/spreadsheets/d/1e6t7GPNNgzsLaPqETFxSmcDoJ-VWs0VEwkEWOhzvF4c/edit?usp=sharing" target="_blank" rel="noopener">Open Google Sheet</a>
     <p class="note" style="margin-top:10px" id="syncStatus">Not synced yet.</p>
     <p class="note" style="margin-top:10px">Matches entries by date + time + type — anything on one side missing from the other gets copied across. See the setup guide for the Apps Script code to paste into your sheet.</p>
-    <p class="note" style="margin-top:10px">That same script can email you when a shot goes unlogged past its time. This app can't do it on its own — a phone stops a web app dead once the screen locks. Set <b>ALERT_EMAIL</b> in the script and run <b>installReminders</b> once.</p>
+    <p class="note zonly" style="margin-top:10px">That same script can email you when a shot goes unlogged past its time. This app can't do it on its own — a phone stops a web app dead once the screen locks. Set <b>ALERT_EMAIL</b> in the script and run <b>installReminders</b> once.</p>
   </section>
-  <section>
+  <section class="zonly">
     <div class="shead"><h2>Monthly report</h2></div>
     <button class="btn sec" id="reportBtn" onclick="emailReportNow()">Email the monthly report now</button>
     <p class="note" style="margin-top:10px">Sends the same write-up the script posts on the 1st, to <b>ALERT_EMAIL</b>. It can take up to a minute — the model is asked, and retried if it is busy. If this answers &ldquo;unknown action&rdquo;, the deployed script is older than the code you pasted: Apps Script → Deploy → Manage deployments → pencil → Version: New version → Deploy. The URL stays the same.</p>
@@ -541,7 +541,7 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
       <button class="btn sec" style="width:auto;margin:0;padding:0 16px" onclick="logVetReading('weight')">Log</button>
     </div>
   </div>
-  <div class="fld">
+  <div class="fld zonly">
     <label>Glucose (mmol/L)</label>
     <div style="display:flex;gap:8px">
       <input id="vetGlucose" type="number" step="0.1" inputmode="decimal">
@@ -670,10 +670,11 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
    walk and photos live under their own keys (zuse_cfg@reggie, DB zuse-audio-reggie),
    so Zuse's keys and data are exactly as before. Reggie syncs to his own sheet
    through his own Apps Script copy (URL and key typed into his Setup).
-   The Android bridge is Zuse-only: reminders, the widget queue and the walk
-   service never see Reggie's page (see NAT and the visibilitychange below). */
+   The Android bridge serves both dogs only on a new APK (takeFor/setPlanFor);
+   Reggie never touches Zuse's plan or background sync (see NAT and the
+   visibilitychange below). */
 const PET=/[?&]pet=reggie\b/.test(location.search)?'reggie':'';
-const REGGIE_QUICK=['c_wet_dry_food','c_wet_food','walk','c_treats','c_dental_stick','poop','weewee','c_medicine'];
+const REGGIE_QUICK=['c_wet_dry_food','c_wet_food','walk','c_van_trip','c_treats','c_dental_stick','poop','weewee','c_medicine'];
 function switchPet(){location.replace(PET?'zuse-care-log.html':'zuse-care-log.html?pet=reggie')}
 
 /* ---------------- storage (artifact-safe + phone-safe) ---------------- */
@@ -907,12 +908,13 @@ async function load(){
   const raw=await Store.get('zuse_entries');
   const c=await Store.get('zuse_cfg');
   if(c){try{cfg=Object.assign(cfg,JSON.parse(c))}catch(e){}}
-  else if(PET){ // Reggie's first open: no insulin routine or reminders, his sheet's own item names, this phone's name and theme
+  else if(PET){ // Reggie's first open: his feeding routine and reminders, his sheet's own item names, this phone's name, theme and home
     let z={};try{z=JSON.parse(localStorage.getItem('zuse_cfg')||'{}')}catch(e){}
-    Object.assign(cfg,{insulin:0,am:[],pm:[],notifOn:false,notifMiss:false,notifStock:false,carer:z.carer||'',theme:z.theme||'',customTypes:{
-      c_wet_dry_food:{n:'Wet + Dry Food',i:'🥣',c:'--food',u:'',d:1},c_wet_food:{n:'Wet Food',i:'🥫',c:'--food',u:'',d:1},
-      c_treats:{n:'Treats',i:'🍪',c:'--treat',u:'',d:1},c_dental_stick:{n:'Dental Stick',i:'🦴',c:'--treat',u:'',d:1},
-      c_medicine:{n:'Medicine',i:'💊',c:'--med',u:'',d:1}}});
+    Object.assign(cfg,{insulin:0,am:[['c_wet_dry_food',1],['c_dental_stick',1],['c_treats',1]],pm:[['c_wet_dry_food',1],['c_treats',1]],amTime:'11:30',pmTime:'23:30',
+      feedAm:'11:25',feedPm:'23:25',notifOn:true,notifMiss:false,notifStock:true,carer:z.carer||'',theme:z.theme||'',homeLat:z.homeLat??null,homeLon:z.homeLon??null,homeAcc:z.homeAcc??null,customTypes:{
+      c_wet_dry_food:{n:'Wet + Dry Food',i:'🥣',c:'--food',u:'',d:1,stk:1},c_wet_food:{n:'Wet Food',i:'🥫',c:'--food',u:'',d:1,stk:1},
+      c_treats:{n:'Treats',i:'🍪',c:'--treat',u:'',d:1,stk:1},c_dental_stick:{n:'Dental Stick',i:'🦴',c:'--treat',u:'',d:1,stk:1},
+      c_medicine:{n:'Medicine',i:'💊',c:'--med',u:'',d:1,stk:1},c_van_trip:{n:'Van Trip',i:'🚐',c:'--walk',u:'min',d:''}}});
     await saveCfg();
   }
   if(raw){try{entries=JSON.parse(raw)}catch(e){entries=[]}}
@@ -1054,26 +1056,36 @@ function lastOf(type){
 /* ---------------- walk stopwatch ---------------- */
 const HOME_RADIUS=2, WALK_GRACE_MS=3e5, MAX_FIX_ACC=20;
 let walkState=null, walkWatchId=null, walkHinted=false;
+/* A walk and a van trip are one stopwatch: walkState.kind is 'walk' or 'van' (Reggie only).
+   Only one runs at a time across both dogs, because the native service is single. */
+const isVan=()=>!!walkState&&walkState.kind==='van';
+const kindName=()=>isVan()?'Van trip':'Walk';
 function renderWalkBar(){
   const bar=document.getElementById('walkBar');
   if(!walkState){bar.style.display='none';return}
+  document.getElementById('walkLbl').textContent=isVan()?'🚐 Van trip':'🦮 Walking';
+  document.getElementById('walkEnd').textContent=isVan()?'End Trip':'End Walk';
   const start=new Date(`${walkState.date}T${walkState.time}:00`);
   const mins=Math.floor((new Date()-start)/6e4);
   document.getElementById('walkElapsed').textContent=`${Math.floor(mins/60)}h ${pad(mins%60)}m`;
   document.getElementById('walkMapBtn').style.display=NAT&&NAT.walkTrack&&(cfg.trackEvery??10)>0?'':'none';
   bar.style.display='flex';
 }
-function startWalk(){
-  if(walkState)return;
+function startWalk(kind){
+  if(walkState){if(PET)toast(`${kindName()} already running`);return}
+  // the other dog's walk key, read raw (Store would add this dog's suffix); '' means none
+  let o=null;try{o=JSON.parse(localStorage.getItem(PET?'zuse_walk':'zuse_walk@reggie')||'null')}catch(e){}
+  if(o){toast(`${PET?'Zuse':'Reggie'} has a ${o.kind==='van'?'van trip':'walk'} running. End it on his page first`);return}
   const d=new Date();
-  walkState={date:iso(d),time:hm(d)};
+  walkState={date:iso(d),time:hm(d),kind:kind==='van'?'van':'walk'};
   Store.set('zuse_walk',JSON.stringify(walkState));
   renderWalkBar();
   armWalkAutoEnd();
-  toast('Walk started');
+  toast(`${kindName()} started`);
 }
-function endWalk(end,track){
+function endWalk(end,track,kind){
   if(!walkState)return;
+  const van=(kind||walkState.kind)==='van', ty=van&&T.c_van_trip?'c_van_trip':'walk', nm=van?'Van trip':'Walk'; // before walkState is cleared below
   const start=new Date(`${walkState.date}T${walkState.time}:00`);
   const mins=Math.max(1,Math.round(((end||new Date())-start)/6e4));
   // Read the route before stopWalk: stopping the service clears it.
@@ -1087,12 +1099,12 @@ function endWalk(end,track){
     const id=extra.trackId;
     Media.save(id,new Blob([JSON.stringify(track)],{type:'application/json'})).catch(()=>{
       const w=entries.find(x=>x.trackId===id);if(w){delete w.trackId;save();renderAll()}
-      toast("Walk logged, but the route couldn't be saved — phone storage may be full");
+      toast(`${nm} logged, but the route couldn't be saved — phone storage may be full`);
     });
   }
-  add('walk',mins,'',start,extra);
+  add(ty,mins,'',start,extra);
   renderWalkBar();
-  toast(`Walk logged: ${mins} min`);
+  toast(`${nm} logged: ${mins} min`);
 }
 // A GPS fix cannot resolve HOME_RADIUS on its own, so the effective perimeter is
 // HOME_RADIUS + the fix's own error. MAX_FIX_ACC caps that worst case at 22m and
@@ -1112,7 +1124,7 @@ function armWalkAutoEnd(){
   walkHinted=false;
   // In the Android app the walk lives in a native service that keeps going, and auto-ends, with the app closed.
   if(NAT&&NAT.startWalk){
-    try{NAT.startWalk(JSON.stringify({start:+new Date(`${walkState.date}T${walkState.time}:00`),lat:cfg.homeLat,lon:cfg.homeLon,radius:HOME_RADIUS,grace:WALK_GRACE_MS,acc:MAX_FIX_ACC,every:NAT.walkTrack?(cfg.trackEvery??10):0}))}catch(e){}
+    try{NAT.startWalk(JSON.stringify({start:+new Date(`${walkState.date}T${walkState.time}:00`),lat:cfg.homeLat,lon:cfg.homeLon,radius:HOME_RADIUS,grace:WALK_GRACE_MS,acc:MAX_FIX_ACC,every:NAT.walkTrack?(cfg.trackEvery??10):0,pet:PET,kind:walkState.kind||'walk'}))}catch(e){}
     return;
   }
   if(cfg.homeLat==null||!navigator.geolocation)return;
@@ -1124,7 +1136,7 @@ function armWalkAutoEnd(){
     if(shouldAutoEnd(dist,acc,elapsed)){endWalk();return}
     // Fix too fuzzy to trust — fall back to the old nudge, once.
     if(!walkHinted&&elapsed>=WALK_GRACE_MS&&acc>MAX_FIX_ACC&&dist-acc<=HOME_RADIUS){
-      walkHinted=true;toast("Looks like you're home — tap End Walk when ready");
+      walkHinted=true;toast(`Looks like you're home — tap End ${isVan()?'Trip':'Walk'} when ready`);
     }
   },()=>{},{enableHighAccuracy:true,maximumAge:0});
   // A cached first fix can end the walk before this assignment lands — don't leak the watch.
@@ -1134,13 +1146,14 @@ function disarmWalkAutoEnd(keepNative){
   if(walkWatchId!=null){navigator.geolocation.clearWatch(walkWatchId);walkWatchId=null;}
   if(!keepNative&&NAT&&NAT.stopWalk)try{NAT.stopWalk()}catch(e){}
 }
-/* Entries the Android side queued while the page wasn't looking: walks the native service
-   ended (home reached, or End walk on the notification) and home-screen widget taps. Each
+/* Entries the Android side queued while the page wasn't looking: walks and van trips the native service
+   ended (home reached, or End walk on the notification) and home-screen widget taps. takeFor(PET)
+   hands over only this dog's; an old APK has just takeEntries, and no second dog. Each
    carries its own times, so a late drain logs true times. The background sync's hidden page
    has no bridge and passes the queue in as qs. */
 function takeNative(qs){
   if(!window.zuseReady)return; // before load() a log() would land in an empty list and be saved over the real one
-  if(qs==null){if(!NAT||!NAT.takeEntries)return;try{qs=NAT.takeEntries()}catch(e){return}}
+  if(qs==null){if(!NAT||!(NAT.takeFor||NAT.takeEntries))return;try{qs=NAT.takeFor?NAT.takeFor(PET):NAT.takeEntries()}catch(e){return}}
   let q=[];try{q=JSON.parse(qs||'[]')}catch(e){}
   let n=0;
   q.forEach(x=>{
@@ -1148,7 +1161,7 @@ function takeNative(qs){
       if(!walkState)return;
       // the same walk only: one ended and restarted in the app meanwhile is a different one
       if(Math.abs(new Date(`${walkState.date}T${walkState.time}:00`)-x.start)>6e4)return;
-      endWalk(new Date(x.end),x.track||null);n++;return;
+      endWalk(new Date(x.end),x.track||null,x.kind);n++;return;
     }
     if(T[x.t]&&x.at){add(x.t,T[x.t].d,'',new Date(x.at));n++}
   });
@@ -1227,7 +1240,7 @@ function drawRoute(pts,title,live){
 }
 function openLiveMap(){
   let p=[];try{p=JSON.parse(NAT.walkTrack())}catch(e){}
-  openMap(p,'Walk so far',1);
+  openMap(p,kindName()+' so far',1);
 }
 function setTrackEvery(v){
   let s=String(v).trim()===''?10:Math.round(Number(v));if(!(s>=0))s=10;if(s>0&&s<3){s=3;toast('3 seconds is the shortest, to save battery')}
@@ -1358,16 +1371,19 @@ function hgFlip(after){
   setTimeout(()=>{svg.style.transition='none';svg.classList.remove('flip');hgFill(0);svg.getBoundingClientRect();
     svg.style.transition='';svg.querySelectorAll('.hgSand').forEach(e=>e.style.transition='');hgBusy=false;after()},950);
 }
+/* Zuse's glass counts from the last shot, Reggie's from his last meal: KEY is the
+   type(s) that restart it, and the wording follows. */
 function renderRing(){
-  const last=lastOf('insulin'), now=new Date();
+  const KEY=PET?['c_wet_dry_food','c_wet_food']:['insulin'];
+  const last=KEY.map(lastOf).filter(Boolean).sort((a,b)=>b-a)[0]||null, now=new Date();
   const hg=document.getElementById('hg');
   const st=document.getElementById('state'), stx=document.getElementById('stateTx');
   if(!last){
     hgShot=null;hgFill(0);hg.className='hg done';
     document.getElementById('ringBig').textContent='—';
-    document.getElementById('ringLbl').textContent='no shots yet';
-    document.getElementById('hTitle').textContent='No insulin logged';
-    document.getElementById('hSub').textContent='Tap 💉 below to record the first shot.';
+    document.getElementById('ringLbl').textContent=PET?'no meals yet':'no shots yet';
+    document.getElementById('hTitle').textContent=PET?'No meal logged':'No insulin logged';
+    document.getElementById('hSub').textContent=PET?'Tap 🥣 below to record the first meal.':'Tap 💉 below to record the first shot.';
     document.getElementById('hMore').textContent='';
     st.style.color=cvar('--mu');st.style.borderColor=cvar('--line');stx.textContent='Waiting';
     return;
@@ -1381,21 +1397,22 @@ function renderRing(){
   hgFill(frac);
   const left=gap-mins, al=Math.abs(left), lh=Math.floor(al/60), lm=Math.floor(al%60);
   document.getElementById('ringBig').textContent=`${left<0?'+':''}${lh}h ${pad(lm)}`;
-  document.getElementById('ringLbl').textContent=left<0?'overdue':'until next shot';
+  const what=PET?'meal':'shot';
+  document.getElementById('ringLbl').textContent=left<0?'overdue':'until next '+what;
   let col,label,sub;
-  const since=`${Math.floor(mins/60)}h ${pad(Math.floor(mins%60))}m since the last shot.`;
+  const since=`${Math.floor(mins/60)}h ${pad(Math.floor(mins%60))}m since the last ${what}.`;
   if(left>60){col='--food';label='On track';sub=since}
-  else if(left>0){col='--insulin';label='Due soon';sub=`Next shot in ${Math.round(left)} minutes.`}
+  else if(left>0){col='--insulin';label='Due soon';sub=`Next ${what} in ${Math.round(left)} minutes.`}
   else if(left>-90){col='--insulin';label='Due now';sub=`Overdue by ${Math.round(-left)} minutes.`}
   else{col='--alert';label='Overdue';sub=`${Math.floor(-left/60)}h ${pad(Math.round(-left%60))}m past the 12-hour mark.`}
   hg.className='hg'+(frac>=1?' done':'')+(col==='--alert'?' over':'');
   st.style.color=cvar(col);st.style.borderColor=cvar(col)+'55';stx.textContent=label;
-  document.getElementById('hTitle').textContent=`Last shot ${pad(last.getHours())}:${pad(last.getMinutes())}`;
+  document.getElementById('hTitle').textContent=`Last ${what} ${pad(last.getHours())}:${pad(last.getMinutes())}`;
   document.getElementById('hSub').textContent=sub;
   // next round = the current one, unless its insulin is already in, then the other
-  const w=currentRoutine(), ii=cfg[w].findIndex(r=>r[0]==='insulin'), nx=ii>=0&&routineDone(w)[ii]?(w==='am'?'pm':'am'):w;
-  const shots=byDate(iso(now)).filter(e=>e.type==='insulin').length;
-  document.getElementById('hMore').textContent=`Next round ${fmt12(nx==='am'?cfg.amTime:cfg.pmTime)} · ${cfg.insulin} units · ${shots} of 2 shots today`;
+  const w=currentRoutine(), ii=cfg[w].findIndex(r=>KEY.includes(r[0])), nx=ii>=0&&routineDone(w)[ii]?(w==='am'?'pm':'am'):w;
+  const shots=byDate(iso(now)).filter(e=>KEY.includes(e.type)).length, at=fmt12(nx==='am'?cfg.amTime:cfg.pmTime);
+  document.getElementById('hMore').textContent=PET?`Next meal ${at} · ${shots} of 2 meals today`:`Next round ${at} · ${cfg.insulin} units · ${shots} of 2 shots today`;
 }
 
 /* ---------------- routine checklist ---------------- */
@@ -1434,7 +1451,7 @@ function renderChecks(){
     const b=document.createElement('button');
     const k=w+i, arm=armedChk===k&&!done[i];
     b.className='chk'+(done[i]?' on':'')+(arm?' arm':'');
-    b.innerHTML=`<span class="box">${done[i]?'✓':''}</span><span class="nm">${arm?`<b>Tap again</b><small>to log it</small>`:`<b>${T[ty].n.split(' ')[0]}</b><small>${T[ty].i} ${q}</small>`}</span>`;
+    b.innerHTML=`<span class="box">${done[i]?'✓':''}</span><span class="nm">${arm?`<b>Tap again</b><small>to log it</small>`:`<b>${PET?T[ty].n:T[ty].n.split(' ')[0]}</b><small>${T[ty].i} ${q}</small>`}</span>`;
     b.onclick=()=>{
       if(done[i]){toast(T[ty].n+' already logged');return}
       // first tap arms (3s), second tap on the same item logs; <350ms is a double-tap, ignored
@@ -1557,7 +1574,7 @@ function renderToday(){
   tl.innerHTML='';
   if(!list.length){
     tl.innerHTML=dayOffset===0
-      ?`<div class="empty">Nothing logged yet today.${PET?'':'<br>Start with the routine above.'}</div>`
+      ?`<div class="empty">Nothing logged yet today.<br>Start with the routine above.</div>`
       :`<div class="empty">Nothing logged on ${esc(dayLabel(ds))}.</div>`;
   }
   else list.forEach(e=>tl.appendChild(evNode(e)));
@@ -1833,7 +1850,7 @@ function renderStock(){
   });
   const sel=document.createElement('select');
   sel.innerHTML='<option value="">+ Track stock for\u2026</option>'+
-    STOCKABLE.concat(Object.keys(T).filter(k=>T[k].stk&&!T[k].h&&!STOCKABLE.includes(k))).filter(k=>!keys.includes(k)).map(k=>`<option value="${k}">${T[k].i} ${T[k].n}</option>`).join('');
+    (PET?[]:STOCKABLE).concat(Object.keys(T).filter(k=>T[k].stk&&!T[k].h&&!STOCKABLE.includes(k))).filter(k=>!keys.includes(k)).map(k=>`<option value="${k}">${T[k].i} ${T[k].n}</option>`).join('');
   sel.onchange=()=>{
     if(!sel.value)return;
     cfg.stock=cfg.stock||{};
@@ -1927,7 +1944,7 @@ function vetSummary(days=30){
   const firstDate=inRange.length?inRange.map(e=>e.date).sort()[0]:today;
   const span=Math.round((new Date(today)-new Date(firstDate))/864e5)+1;
   const n=Math.max(1,Math.min(days,span));
-  const L=[`Zuse \u2014 last ${days} days (${from} to ${today})`,''];
+  const L=[`${PET?'Reggie':'Zuse'} \u2014 last ${days} days (${from} to ${today})`,''];
   if(!inRange.length){
     L.push('Nothing logged in this period.');
     const ever=entries.length?[...entries].sort((a,b)=>a.date<b.date?1:-1)[0]:null;
@@ -1947,6 +1964,15 @@ function vetSummary(days=30){
   }else{
     L.push('Weight: never recorded');
   }
+  if(PET){
+    const meals=count('c_wet_dry_food')+count('c_wet_food');
+    L.push(`Meals: ${meals} total, ${(meals/n).toFixed(1)}/day avg over ${n} days`);
+    L.push(`Treats: ${count('c_treats')}, dental sticks: ${count('c_dental_stick')}`);
+    L.push(`Walks: ${count('walk')} walks, ${Math.round(sum('walk')/n)} min/day avg`);
+    L.push(`Van trips: ${count('c_van_trip')}, ${Math.round(sum('c_van_trip'))} min total`);
+    L.push(`Vet visits: ${count('vet')}`);
+    L.push(`Medicine: ${count('c_medicine')} doses`);
+  }else{
   const gr=series('glucose').filter(pt=>pt.d>=from);
   if(gr.length)L.push(`Glucose: ${gr.map(pt=>`${pt.v} on ${pt.d}`).join(', ')}`);
   L.push(`Insulin: ${(sum('insulin')/n).toFixed(1)} units/day avg over ${n} days, ${count('insulin')} shots total`);
@@ -1954,6 +1980,7 @@ function vetSummary(days=30){
   L.push(`Walks: ${count('walk')} walks, ${Math.round(sum('walk')/n)} min/day avg`);
   const meds=['pred','para','synulox','samylin','cerenia'].filter(t=>sum(t)>0);
   if(meds.length)L.push(`Meds: ${meds.map(t=>`${T[t].n} ${sum(t)} ${T[t].u}`).join(', ')}`);
+  }
   const inc=inRange.filter(e=>['sick','diarrhea','pee'].includes(e.type))
     .sort((a,b)=>(a.date+a.time)<(b.date+b.time)?-1:1);
   L.push('', inc.length?`Incidents (${inc.length}):`:'Incidents: none');
@@ -1978,11 +2005,11 @@ async function shareVetSummary(){
   const text=document.getElementById('sumText').textContent||vetSummary();
   if(NAT){NAT.share(text);return}
   if(navigator.share){
-    try{await navigator.share({title:'Zuse \u2014 30 day summary',text});return}
+    try{await navigator.share({title:`${PET?'Reggie':'Zuse'} \u2014 30 day summary`,text});return}
     catch(e){if(e&&e.name==='AbortError')return}
   }
   try{await navigator.clipboard.writeText(text);toast('Summary copied to clipboard')}
-  catch(e){dl(`zuse-summary-${iso(new Date())}.txt`,text,'text/plain','Summary downloaded')}
+  catch(e){dl(`${PET||'zuse'}-summary-${iso(new Date())}.txt`,text,'text/plain','Summary downloaded')}
 }
 
 /* ---------------- photos ---------------- */
@@ -2066,7 +2093,7 @@ function tileGrid(el,keys){
     b.style.setProperty('--c',cvar(t.c));
     b.innerHTML=`<span class="ic">${t.i}</span><span class="nm">${t.n}</span>`;
     b.onclick=()=>{
-      if(k==='walk'){startWalk();return}
+      if(k==='walk'||(PET&&k==='c_van_trip')){startWalk(k==='walk'?'walk':'van');return}
       if(k==='vet'){if(vetState){toast('Vet visit already in progress')}else{startVet()}return}
       if(k==='urine'){openUrineSheet();return}
       if(k==='insulin'&&!insulinGuardOk())return;
@@ -2105,7 +2132,7 @@ function renderHist(){
     const wk=list.filter(e=>e.type==='walk').reduce((a,e)=>a+(+e.qty||0),0);
     const flags=[...new Set(list.filter(e=>FLAGS.includes(e.type)).map(e=>e.type))];
     const head=document.createElement('button');head.className='dhead';
-    head.innerHTML=`<div><div class="dd">${dayLabel(k)}</div><div class="dm mono">${ins?ins+'u insulin':'no insulin'} · ${wk}min walk · ${list.length} entries</div></div>
+    head.innerHTML=`<div><div class="dd">${dayLabel(k)}</div><div class="dm mono">${PET?'':(ins?ins+'u insulin':'no insulin')+' · '}${wk}min walk · ${list.length} entries</div></div>
       <div class="tags">${flags.map(f=>`<span class="tag" style="background:${cvar(T[f].c)}" title="${T[f].n}"></span>`).join('')}<span class="caret">▶</span></div>`;
     head.onclick=()=>el.classList.toggle('open');
     const body=document.createElement('div');body.className='dbody';
@@ -2436,7 +2463,7 @@ function renderRoutineCards(){
 function openLog(entry,preset){
   editId=entry?entry.id:null;
   const sel=document.getElementById('fType');
-  const k=entry?entry.type:(preset||'food'), opts=LOGGABLE();
+  const k=entry?entry.type:(preset||(PET?LOGGABLE()[0]:'food')), opts=LOGGABLE();
   if(!opts.includes(k)&&T[k])opts.push(k); // a hidden item's old entry stays editable
   sel.innerHTML=opts.map(k=>`<option value="${k}">${T[k].i} ${T[k].n}</option>`).join('');
   const now=new Date();
@@ -2685,12 +2712,13 @@ function delCustomType(){
 /* ---------------- Android app bridge ---------------- */
 /* window.ZuseNative exists only inside the Android app (see android/). All of
    this is a no-op without it, so the PWA and the TWA run unchanged. */
-const NAT=PET?null:(window.ZuseNative||null); // Reggie's page must never replace Zuse's reminder plan or take his widget/walk queue
+// Reggie gets the bridge only from an APK that keeps a plan and a queue per dog (takeFor/setPlanFor); an older one would mix his in with Zuse's.
+const NAT=PET?(window.ZuseNative&&window.ZuseNative.takeFor&&window.ZuseNative.setPlanFor?window.ZuseNative:null):(window.ZuseNative||null);
 /* The alarm list the app arms, for the next 14 days: feeding reminders, missed
    shots, and the day each tracked item will cross its low line. Ids are stable,
    so handing over the same plan again never repeats a notification. */
 function notifPlan(now){
-  const out=[], end=+now+14*864e5, nm={am:'morning',pm:'night'};
+  const out=[], end=+now+14*864e5, nm={am:'morning',pm:'night'}, dog=PET?'Reggie: ':'';
   const put=(id,d,title,body)=>{if(d>now&&+d<=end)out.push({id,at:+d,title,body})};
   // calendar arithmetic, not 864e5 steps: a DST change would shift every alarm an hour
   const at=(i,t)=>{const[h,m]=t.split(':').map(Number);return new Date(now.getFullYear(),now.getMonth(),now.getDate()+i,h,m)};
@@ -2701,8 +2729,8 @@ function notifPlan(now){
       const f=at(i,w==='am'?cfg.feedAm:cfg.feedPm);
       // an empty routine has nothing to remind about; a finished one, nothing left
       if(cfg[w].length&&!(currentRoutine(f)===w&&routineDone(w,f).every(Boolean)))
-        put(`feed-${w}-${ds}`,f,`🥫 Feeding & meds — ${nm[w]}`,cfg[w].map(([t,q])=>`${T[t]?T[t].n:t} ${q}`).join(' · '));
-      if(!cfg.notifMiss)return;
+        put(`feed-${w}-${ds}`,f,`🥫 ${dog}Feeding & meds — ${nm[w]}`,cfg[w].map(([t,q])=>`${T[t]?T[t].n:t} ${q}`).join(' · '));
+      if(!cfg.notifMiss||PET)return; // missed-shot alerts are insulin's
       const shot=w==='am'?cfg.amTime:cfg.pmTime, m=at(i,shot);m.setMinutes(m.getMinutes()+30);
       const[a,b]=routineWin(w,m);
       if(!entries.some(e=>e.type==='insulin'&&ts(e)>=a&&ts(e)<b))
@@ -2715,7 +2743,7 @@ function notifPlan(now){
     if(!s||s.days==null||isLowStock(Object.assign({t},s)))return;
     const n=LOW_LEFT[t]!=null?Math.ceil((s.left-LOW_LEFT[t])/s.rate):s.days-(LOW_DAYS_OVERRIDE[t]||LOW_DAYS);
     const left=Math.round((s.left-s.rate*n)*100)/100;
-    put(`stock-${t}-${cfg.stock[t].since}`,at(n,'10:00'),`📦 ${T[t].n} running low`,
+    put(`stock-${t}-${cfg.stock[t].since}`,at(n,'10:00'),`📦 ${dog}${T[t].n} running low`,
       stockLabel({t,left,rate:s.rate,days:Math.floor(left/s.rate)})+' — time to reorder.');
   });
   return out.sort((a,b)=>a.at-b.at);
@@ -2725,7 +2753,11 @@ function pushNotifPlan(){
   if(!NAT)return;
   clearTimeout(notifT);
   notifT=setTimeout(()=>{
-    try{NAT.setPlan(JSON.stringify({items:cfg.notifOn?notifPlan(new Date()):[]}))}catch(e){}
+    try{
+      const j=JSON.stringify({items:cfg.notifOn?notifPlan(new Date()):[]});
+      // Reggie only ever replaces his own plan; Zuse's goes to setPlanFor('') on a new APK, setPlan on an older one
+      if(PET)NAT.setPlanFor(PET,j);else if(NAT.setPlanFor)NAT.setPlanFor('',j);else NAT.setPlan(j);
+    }catch(e){}
     notifyLow();
   },1000);
 }
@@ -2738,7 +2770,7 @@ function notifyLow(){
   lowStock().forEach(x=>{
     const s=cfg.stock[x.t];if(s.notified===s.since)return;
     // same id as the planned alert, so one that already fired is replaced, not doubled
-    try{NAT.notify(`stock-${x.t}-${s.since}`,'📦 Running low: '+T[x.t].n,stockLabel(x));s.notified=s.since;ch=1}catch(e){}
+    try{NAT.notify(`${PET?PET+':':''}stock-${x.t}-${s.since}`,'📦 Running low: '+(PET?'Reggie — ':'')+T[x.t].n,stockLabel(x));s.notified=s.since;ch=1}catch(e){}
   });
   if(ch)saveCfg();
 }
@@ -2756,7 +2788,7 @@ function renderNotif(){
   g('nFeedAm').value=cfg.feedAm;g('nFeedPm').value=cfg.feedPm;
 }
 function testNotif(){
-  try{NAT.notify('test','🐕 Zuse care log','Notifications are working.');toast('Test sent')}
+  try{NAT.notify('test',PET?'🐶 Reggie care log':'🐕 Zuse care log','Notifications are working.');toast('Test sent')}
   catch(e){toast('Could not send: '+(e&&e.message||e))}
 }
 document.addEventListener('change',ev=>{
@@ -2773,6 +2805,18 @@ document.addEventListener('click',ev=>{
 });
 
 /* ---------------- boot ---------------- */
+/* A one-time setup link, zuse-care-log.html[?pet=reggie]#sync=<urlencoded Web App URL>|<urlencoded key>,
+   fills in Setup > Google Sheet sync on this phone and clears itself from the address bar. Only a
+   script.google.com web app URL is taken. Returns true when it ran a sync. */
+function applySyncLink(){
+  if(!location.hash.startsWith('#sync='))return false;
+  let u='',k='';
+  try{const r=location.hash.slice(6),i=r.search(/\||%7C/i);if(i>0){u=decodeURIComponent(r.slice(0,i));k=decodeURIComponent(r.slice(i).replace(/^(\||%7C)/i,''))}}catch(e){}
+  history.replaceState(null,'',location.pathname+location.search); // keep ?pet=, drop the key from the address bar
+  if(!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(u)||!k.trim()){toast("That sync link doesn't look right");return false}
+  cfg.syncUrl=u;cfg.syncKey=k.trim();saveCfg();toast('Sheet sync set up');syncNow();
+  return true;
+}
 function renderSyncFab(){
   const d=cfg.lastSync?new Date(cfg.lastSync):null;
   document.getElementById('floatSyncTime').textContent=d?`${pad(d.getHours())}:${pad(d.getMinutes())}`:'';
@@ -2797,11 +2841,12 @@ function tick(){
     document.documentElement.setAttribute('data-pet',PET);document.title='Reggie — Care Log';
     document.getElementById('hname').textContent='Reggie';document.getElementById('btnPet').title='Switch to Zuse';document.getElementById('btnPet').firstChild.nodeValue='🐶';
     // Zuse's medicines stay out of Reggie's pickers; a sheet row naming one still pulls in as itself
-    ['insulin','samylin','pred','para','synulox','cerenia','chicken','carrot','treat','glucose','urine','food','dose'].forEach(k=>{if(T[k])T[k].h=1});
+    ['insulin','samylin','pred','para','synulox','cerenia','chicken','carrot','treat','glucose','urine','food','dose','syringe'].forEach(k=>{if(T[k])T[k].h=1});
     // In the Android app, the page left in memory must be Zuse's: the app refreshes his insulin reminders from it.
-    // Not at once on hide, so picking a photo or sharing doesn't throw Reggie's page away.
-    if(window.ZuseNative){let off=null;document.addEventListener('visibilitychange',()=>{
-      if(document.hidden){off=setTimeout(()=>location.replace('zuse-care-log.html'),18e4)}else clearTimeout(off)})}
+    // Not at once on hide, so picking a photo or sharing doesn't throw Reggie's page away; and not while a walk or van
+    // trip is running here (checked when the time is up, so one the service ended meanwhile doesn't hold it for good).
+    if(window.ZuseNative){let off=null;const back=()=>{off=setTimeout(()=>{if(walkState)back();else location.replace('zuse-care-log.html')},18e4)};
+      document.addEventListener('visibilitychange',()=>{if(document.hidden)back();else clearTimeout(off)})}
   }else document.getElementById('btnPet').title='Switch to Reggie';
   if(!cfg.theme){cfg.theme=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';saveCfg();}
   applyTheme();renderWakeBtn();if(cfg.wakeOn)acquireWake();
@@ -2818,13 +2863,13 @@ function tick(){
   }
   if(NAT){
     document.getElementById('installSec').style.display='none';
-    if(NAT.setSyncEvery){document.getElementById('bgSyncRow').style.display='block';setBgSync(cfg.bgSync??30)}
+    if(NAT.setSyncEvery&&!PET){document.getElementById('bgSyncRow').style.display='block';setBgSync(cfg.bgSync??30)}
     if(NAT.walkTrack){document.getElementById('trackRow').style.display='block';document.getElementById('sTrackEvery').value=cfg.trackEvery??10}
     // ask once, on the first open inside the app; Setup has the button after that
     try{if(!cfg.notifAsked&&NAT.notifPermission()==='default'){cfg.notifAsked=1;saveCfg();NAT.requestNotifPermission()}}catch(e){}
   }
   sweepMedia();
-  autoSync();
+  if(!applySyncLink())autoSync();
   // ask the browser not to evict the log and photos under storage pressure
   try{navigator.storage?.persist?.()}catch(e){}
 })();

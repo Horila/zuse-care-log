@@ -48,6 +48,7 @@ const esc = s => String(s);
 const TYPE_ALIASES = { 'insulin': 'insulin', 'canned food': 'food', 'dose change': 'dose' };
 
 const code = [
+  "const PET='';", // the app's PET is read from the URL; Zuse's page is '' (Reggie's branches are checked by hand)
   grabConst('HOME_RADIUS'), grabConst('LOW_DAYS'), grabConst('LOW_DAYS_OVERRIDE'),
   'const pad=n=>String(n).padStart(2,"0");',
   'const iso=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;',
@@ -741,6 +742,11 @@ eq(api.typeKeyFromSheetType('Insulin'), 'insulin', 'and insulin is still insulin
   api.setState([], Object.assign(base(), { notifMiss: false, am: [] }));
   p = ids(api.notifPlan(now));
   ok(!p.some(x => /^miss-|^feed-am/.test(x)) && p.includes('feed-pm-2026-07-14'), 'missed-shot alerts and an empty routine stay quiet');
+
+  // Reggie's cfg: meals and treats in the routines, no insulin, missed-shot alerts off.
+  api.setState([], Object.assign(base(), { notifMiss: false, am: [['c_wet_dry_food', 1], ['c_treats', 1]], pm: [['c_wet_dry_food', 1]] }));
+  p = api.notifPlan(now);
+  ok(p.length === 28 && p.every(x => /^feed-/.test(x.id) && !/nsulin/.test(x.title + x.body)), 'a no-insulin routine gets feeding reminders only, no missed-shot items');
 
   // Stock reads the real clock (isoBack), so this half runs on today.
   const t0 = new Date(), at10 = n => +new Date(t0.getFullYear(), t0.getMonth(), t0.getDate() + n, 10, 0);

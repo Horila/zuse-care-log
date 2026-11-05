@@ -209,7 +209,7 @@ public class MainActivity extends Activity {
     class Bridge {
         boolean ok() { return inApp(pageUrl); }
 
-        @JavascriptInterface public String version() { return "3.3"; }
+        @JavascriptInterface public String version() { return "3.4"; }
 
         /** The walk in progress's route so far, as [[lat,lon,ms],...]. Read it before stopWalk, which clears it. */
         @JavascriptInterface public String walkTrack() { return ok() ? WalkService.track(MainActivity.this) : "[]"; }
@@ -242,12 +242,18 @@ public class MainActivity extends Activity {
             if (ok()) try { WalkService.cancel(MainActivity.this); } catch (Exception ignored) { }
         }
 
-        /** Entries finished natively while the page wasn't looking, as a JSON array; empties the queue. */
+        /** Zuse's entries finished natively while the page wasn't looking, as a JSON array; removes only those. */
         @JavascriptInterface public String takeEntries() { return ok() ? WalkService.take(MainActivity.this) : "[]"; }
 
-        @JavascriptInterface public void setPlan(String json) {
+        /** One dog's entries ('' = Zuse, 'reggie'), as a JSON array; removes only those. */
+        @JavascriptInterface public String takeFor(String pet) { return ok() ? WalkService.takeFor(MainActivity.this, pet) : "[]"; }
+
+        @JavascriptInterface public void setPlan(String json) { setPlanFor("", json); }
+
+        /** One dog's reminder plan; the other dog's alarms are left alone. */
+        @JavascriptInterface public void setPlanFor(String pet, String json) {
             if (!ok()) return;
-            try { Reminders.setPlan(MainActivity.this, json); } catch (Exception ignored) { }
+            try { Reminders.setPlanFor(MainActivity.this, pet, json); } catch (Exception ignored) { }
         }
 
         @JavascriptInterface public void notify(String id, String title, String body) {

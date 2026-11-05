@@ -43,9 +43,11 @@ public class WalkService extends Service implements LocationListener {
     long start, grace, every, lastPt;
     double lat, lon, radius, maxAcc;
     boolean home, ending;
+    String what = "walk", who = "Zuse's walk"; // kind and "Reggie's van trip" for the notifications
 
-    /** json {start, lat, lon, radius, grace, acc, every}; lat is null when no home pin is set,
-     *  every is seconds between route points (0 or missing = no route). */
+    /** json {start, lat, lon, radius, grace, acc, every, pet, kind}; lat is null when no home pin is set,
+     *  every is seconds between route points (0 or missing = no route), pet is '' (Zuse) or 'reggie',
+     *  kind is 'walk' or 'van'. */
     static void begin(Context ctx, String json) {
         Reminders.prefs(ctx).edit().putString(WALK, json).commit();
         Intent i = new Intent(ctx, WalkService.class);
@@ -57,11 +59,24 @@ public class WalkService extends Service implements LocationListener {
         ctx.stopService(new Intent(ctx, WalkService.class));
     }
 
-    /** Hand the queue to the page and empty it, in one step. */
-    static synchronized String take(Context ctx) {
-        String q = Reminders.prefs(ctx).getString(QUEUE, "[]");
-        Reminders.prefs(ctx).edit().remove(QUEUE).commit();
-        return q;
+    /** Zuse's entries (the old page and the old bridge call this). */
+    static String take(Context ctx) { return takeFor(ctx, ""); }
+
+    /** Hand the page one dog's queued entries ("" = Zuse, entries with no pet too) and remove exactly those, in one step. */
+    static synchronized String takeFor(Context ctx, String pet) {
+        if (pet == null) pet = "";
+        JSONArray all, mine = new JSONArray(), rest = new JSONArray();
+        try { all = new JSONArray(Reminders.prefs(ctx).getString(QUEUE, "[]")); } catch (Exception e) { return "[]"; } // enqueue overwrites a corrupt queue
+        for (int i = 0; i < all.length(); i++) {
+            JSONObject e = all.optJSONObject(i);
+            // an entry that isn't an object can't name a dog: it goes to Zuse's page, never silently dropped
+            ((e != null ? e.optString("pet", "") : "").equals(pet) ? mine : rest).put(e != null ? e : all.opt(i));
+        }
+        if (mine.length() > 0) {
+            if (rest.length() == 0) Reminders.prefs(ctx).edit().remove(QUEUE).commit();
+            else Reminders.prefs(ctx).edit().putString(QUEUE, rest.toString()).commit();
+        }
+        return mine.toString();
     }
 
     static synchronized void enqueue(Context ctx, JSONObject entry) {
@@ -112,6 +127,8 @@ public class WalkService extends Service implements LocationListener {
         lon = w.optDouble("lon", Double.NaN);
         every = Math.max(0, w.optLong("every", 0)) * 1000;
         lastPt = 0;
+        what = "van".equals(w.optString("kind")) ? "van trip" : "walk";
+        who = ("reggie".equals(w.optString("pet")) ? "Reggie" : "Zuse") + "'s " + what;
         // Every app open re-arms the walk; only a new walk (a different start) begins a fresh route.
         try {
             if (new JSONObject(Reminders.prefs(this).getString(TRACK, "{}")).optLong("start", -1) != start)
@@ -122,7 +139,7 @@ public class WalkService extends Service implements LocationListener {
         home = fine && !Double.isNaN(lat) && !Double.isNaN(lon);
         ending = false;
         try {
-            Notification n = ongoing(home ? "Ends by itself when you're back home" : "Tap End walk when you're back");
+            Notification n = ongoing(home ? "Ends by itself when you're back home" : "Tap End " + what + " when you're back");
             if (Build.VERSION.SDK_INT >= 29) startForeground(ONGOING, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
             else startForeground(ONGOING, n);
         } catch (Exception e) { stopSelf(); return START_NOT_STICKY; } // no location grant, or started from the background
@@ -165,14 +182,23 @@ public class WalkService extends Service implements LocationListener {
         getSystemService(LocationManager.class).removeUpdates(this);
         String w = Reminders.prefs(this).getString(WALK, null);
         if (w == null) { stopSelf(); return; } // already ended in the app
-        try { start = new JSONObject(w).optLong("start", start); } catch (Exception ignored) { } // End tapped on a fresh instance
-        try { enqueue(this, new JSONObject().put("t", "walk").put("start", start).put("end", end).put("track", new JSONArray(track(this)))); } catch (Exception ignored) { }
+        JSONObject wj = new JSONObject();
+        try { wj = new JSONObject(w); start = wj.optLong("start", start); } catch (Exception ignored) { } // End tapped on a fresh instance
+        // End tapped on a fresh instance: name and kind come from the stored walk, not the fields
+        what = "van".equals(wj.optString("kind")) ? "van trip" : "walk";
+        who = ("reggie".equals(wj.optString("pet")) ? "Reggie" : "Zuse") + "'s " + what;
+        try {
+            JSONObject e = new JSONObject().put("t", "walk").put("start", start).put("end", end).put("track", new JSONArray(track(this)));
+            if (wj.has("pet")) e.put("pet", wj.optString("pet"));
+            if (wj.has("kind")) e.put("kind", wj.optString("kind"));
+            enqueue(this, e);
+        } catch (Exception ignored) { }
         Reminders.prefs(this).edit().remove(WALK).remove(TRACK).commit();
         stopForeground(true);
         long mins = Math.max(1, Math.round((end - start) / 60000.0));
         try {
             getSystemService(NotificationManager.class).notify(DONE, builder(this)
-                    .setContentTitle("🦮 Walk logged: " + mins + " min")
+                    .setContentTitle("🦮 " + who + " logged: " + mins + " min")
                     .setContentText("Back home at " + DateFormat.getTimeInstance(DateFormat.SHORT).format(new Date(end)))
                     .setAutoCancel(true).build());
         } catch (SecurityException ignored) { }
@@ -190,8 +216,8 @@ public class WalkService extends Service implements LocationListener {
         PendingIntent end = PendingIntent.getService(this, 1, new Intent(this, WalkService.class).setAction(END),
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         @SuppressWarnings("deprecation")
-        Notification.Action a = new Notification.Action.Builder(0, "End walk", end).build();
-        return builder(this).setContentTitle("🦮 Walking").setContentText(text)
+        Notification.Action a = new Notification.Action.Builder(0, "End " + what, end).build();
+        return builder(this).setContentTitle("🦮 " + who).setContentText(text)
                 .setWhen(start).setUsesChronometer(true).setShowWhen(true)
                 .setOngoing(true).addAction(a).build();
     }

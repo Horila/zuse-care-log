@@ -12,7 +12,7 @@ and the tests use only Node's stdlib `assert`.
 ## Commands
 
 ```
-node test-logic.js    # pure logic lifted out of zuse-care-log.html (233 checks)
+node test-logic.js    # pure logic lifted out of zuse-care-log.html (239 checks)
 node test-sync.js     # the Apps Script backend under stubbed Google services (324 checks)
 ```
 
@@ -252,7 +252,8 @@ A native Android build (`android/`, written separately) injects `ZuseNative`;
 the TWA are unchanged. Contract: `version`, `setPlan(json)`, `notify(id,title,body)`,
 `notifPermission`/`requestNotifPermission`, `exactAlarms`/`openExactAlarmSettings`,
 `saveFile(name,mime,text)` (returns "" or an error), `share(text)`, `openExternal(url)`,
-`startWalk(json)`/`stopWalk()`/`takeEntries()`/`walkTrack()` (APK 3.3+), `setSyncEvery(min)` (Setup box,
+`startWalk(json)`/`stopWalk()`/`takeEntries()`/`walkTrack()` (APK 3.3+), `takeFor(pet)`/`setPlanFor(pet,json)`
+(per dog, APK 3.4+; see "Second dog: Reggie"), `setSyncEvery(min)` (Setup box,
 `cfg.bgSync`, 0 = off, floor 15) and `syncing(on)` (APK 3.0+, so feature-test them).
 - `syncNow` wraps each sync in `syncing(true/false)`, which holds a short `dataSync`
   foreground service (`SyncKeep`) so closing the app mid-sync doesn't freeze it.
@@ -304,16 +305,42 @@ header switches). `const PET` is `'reggie'` there and `''` for Zuse.
 - Storage: `Store` suffixes every key with `@reggie`, and photos/routes use the
   DB `zuse-audio-reggie`. Zuse's keys and DB are untouched. Keep the DBs apart:
   `sweepMedia` deletes every blob the current log doesn't reference.
-- First open: no seed, empty routines, reminders off, `carer`/`theme` copied
-  from Zuse's cfg, and five custom items spelled as in Reggie's sheet
-  (Wet + Dry Food, Wet Food, Treats, Dental Stick, Medicine). Zuse's medicines,
-  Canned Food and Treat get `h:1`. The hourglass and routine card are hidden by
-  CSS (`html[data-pet] .hero`), and At a glance shows meals and treats instead.
-- Android: `NAT` is null on Reggie's page, so it never sends a reminder plan,
-  drains the widget/walk queue, or starts the walk service. The background
-  `SyncJob` always loads the bare URL (Zuse). In the APK, Reggie's page goes
-  back to Zuse's after 3 minutes hidden, because a live page is what the app
-  refreshes Zuse's insulin reminders from.
+- First open: no seed. `carer`/`theme`/home location are copied from Zuse's cfg.
+  Six custom items spelled as in Reggie's sheet (Wet + Dry Food, Wet Food,
+  Treats, Dental Stick, Medicine all `stk:1`, plus Van Trip `c_van_trip`, unit
+  min). Zuse's medicines, Canned Food, Treat and the stock-only Syringes get
+  `h:1`, and the stock picker lists only Reggie's own `stk` items. Feeding
+  routine: am Wet + Dry Food, Dental Stick, Treats; pm Wet + Dry Food, Treats,
+  at 11:30/23:30, reminders 11:25/23:25 (Zuse's are 11:20/23:20, so two alarms
+  never share a minute), `notifOn` and `notifStock` on, `notifMiss` off.
+- Same code, other words: `renderRing()` keeps the hero for Reggie, with `KEY` =
+  his meal types (Zuse: insulin) restarting the hourglass and the wording
+  ("Last meal", "until next meal", "Next meal ... N of 2 meals today"). The
+  vet summary (`vetSummary`) lists meals, treats, dental sticks, walks, van
+  trips, weight, vet visits and medicine for Reggie. `notifPlan` prefixes
+  Reggie's titles with "Reggie:" and never makes missed-shot items for him
+  (`||PET`). Setup rows that are insulin's (dose, hours between shots, missed-shot
+  alert, vet-sheet glucose, the script-email note) carry class `zonly`, hidden
+  by `html[data-pet] .zonly`. `test-logic.js` declares `const PET=''`.
+- Van trip = a walk with `walkState.kind==='van'`: same stopwatch, bar
+  ("🚐 Van trip"), map and auto-end; started from the Van Trip tile (Reggie only),
+  logged as `c_van_trip`. `startWalk` JSON carries `pet` and `kind`; a natively
+  ended walk's queue entry carries them back (`t` stays `'walk'`). Only one walk
+  or van trip runs at a time across both dogs: `startWalk` reads the other dog's
+  raw `zuse_walk`/`zuse_walk@reggie` key and refuses with a toast.
+- Android: `NAT` on Reggie's page is the bridge only if the APK has `takeFor` and
+  `setPlanFor` (APK 3.4+), else null as before. `takeNative` uses `takeFor(PET)`
+  (older APK: `takeEntries`, Zuse only); `pushNotifPlan` sends Reggie's plan with
+  `setPlanFor('reggie', ...)` only, Zuse's with `setPlanFor('', ...)` or the old
+  `setPlan`. Reggie never calls `setPlan` or `setSyncEvery` (his background-sync
+  row stays hidden). The background `SyncJob` loads the bare URL (Zuse), then
+  `?pet=reggie`. In the APK, Reggie's page goes back to Zuse's after 3 minutes
+  hidden, because a live page is what the app refreshes Zuse's insulin reminders
+  from; the timer waits while a walk or van trip runs here and re-checks.
+- Setup link: `#sync=<urlencoded Web App URL>|<urlencoded key>` on either page
+  (`applySyncLink()` at boot) fills in the sync URL and key, strips itself from the
+  address bar (`?pet=` kept), toasts and syncs. Only an `https://script.google.com/macros/s/<id>/exec`
+  URL is accepted.
 - Backups carry `pet:'reggie'`, and a restore refuses the other dog's file.
 - `sw.js` caches the page under the bare URL, so both dogs share one fresh copy.
 - Sync: Reggie's sheet ("Reggie's Diary", tab "Reginald
@@ -323,7 +350,8 @@ header switches). `const PET` is `'reggie'` there and `''` for Zuse.
   or it sends Zuse's insulin and vet emails. The URL and secret are typed into
   Reggie's Setup on each phone, never committed (this repo is public).
 - Ceiling: Reggie's "Dry Food" rows pull in as notes, since `dry food` is a
-  `TYPE_ALIASES` key with no `T.dry`. The 30-day vet summary still says "Zuse".
+  `TYPE_ALIASES` key with no `T.dry`. His Setup still shows the "Open Google Sheet"
+  link and the Monthly report button, which point at Zuse's sheet and e-mail setup.
 
 ## Storage
 
@@ -334,7 +362,7 @@ recordings from the removed vet-audio feature stay readable.
 
 ## Layout of zuse-care-log.html
 
-One ~2574-line file: styles 13–210, markup 212–608, script 609–2572.
+One ~2889-line file: styles 13–240, markup 242–666, script 667–2887.
 
 ## Other files at the root
 

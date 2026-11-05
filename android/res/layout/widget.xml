@@ -2,27 +2,65 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="horizontal"
+    android:orientation="vertical"
     android:padding="4dp">
-    <TextView
-        android:id="@+id/wee"
-        android:layout_width="0dp"
-        android:layout_height="match_parent"
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginEnd="4dp"
-        android:background="@drawable/widget_btn"
-        android:gravity="center"
-        android:text="💧 Wee"
-        android:textColor="#E6EDF3"
-        android:textSize="16sp" />
-    <TextView
-        android:id="@+id/poop"
-        android:layout_width="0dp"
-        android:layout_height="match_parent"
+        android:layout_marginBottom="4dp"
+        android:orientation="horizontal">
+        <TextView
+            android:id="@+id/wee"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
+            android:background="@drawable/widget_btn"
+            android:gravity="center"
+            android:maxLines="1"
+            android:text="Zuse 💧 Wee"
+            android:textColor="#E6EDF3"
+            android:textSize="13sp" />
+        <TextView
+            android:id="@+id/poop"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="@drawable/widget_btn"
+            android:gravity="center"
+            android:maxLines="1"
+            android:text="Zuse 💩 Poop"
+            android:textColor="#E6EDF3"
+            android:textSize="13sp" />
+    </LinearLayout>
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
         android:layout_weight="1"
-        android:background="@drawable/widget_btn"
-        android:gravity="center"
-        android:text="💩 Poop"
-        android:textColor="#E6EDF3"
-        android:textSize="16sp" />
+        android:orientation="horizontal">
+        <TextView
+            android:id="@+id/rwee"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
+            android:background="@drawable/widget_btn"
+            android:gravity="center"
+            android:maxLines="1"
+            android:text="Reggie 💧 Wee"
+            android:textColor="#E6EDF3"
+            android:textSize="13sp" />
+        <TextView
+            android:id="@+id/rpoop"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="@drawable/widget_btn"
+            android:gravity="center"
+            android:maxLines="1"
+            android:text="Reggie 💩 Poop"
+            android:textColor="#E6EDF3"
+            android:textSize="13sp" />
+    </LinearLayout>
 </LinearLayout>

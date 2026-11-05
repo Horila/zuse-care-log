@@ -16,9 +16,13 @@ public class QuickLog extends BroadcastReceiver {
     @Override public void onReceive(Context ctx, Intent intent) {
         String t = intent.getStringExtra("t");
         if (!"weewee".equals(t) && !"poop".equals(t)) return;
-        try { WalkService.enqueue(ctx, new JSONObject().put("t", t).put("at", System.currentTimeMillis())); }
-        catch (Exception e) { return; }
-        Toast.makeText(ctx, ("poop".equals(t) ? "💩 Poop" : "💧 Wee Wee") + " logged", Toast.LENGTH_SHORT).show();
+        boolean reggie = "reggie".equals(intent.getStringExtra("pet"));
+        try {
+            JSONObject e = new JSONObject().put("t", t).put("at", System.currentTimeMillis());
+            if (reggie) e.put("pet", "reggie"); // Zuse's entries stay untagged, as before
+            WalkService.enqueue(ctx, e);
+        } catch (Exception e) { return; }
+        Toast.makeText(ctx, (reggie ? "Reggie " : "") + ("poop".equals(t) ? "💩 Poop" : "💧 Wee Wee") + " logged", Toast.LENGTH_SHORT).show();
         MainActivity.poke();
         try { SyncJob.soon(ctx); } catch (Exception ignored) { }
     }
