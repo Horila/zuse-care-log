@@ -58,6 +58,7 @@ header{padding:calc(14px + env(safe-area-inset-top)) 0 6px;position:sticky;top:0
 .pip{width:38px;height:38px;border-radius:12px;background:linear-gradient(150deg,#2C3B47,#16202A);display:grid;place-items:center;font-size:20px;border:1px solid var(--line)}
 .hname{font-family:var(--dsp);font-weight:700;font-size:19px;line-height:1}
 .hsub{font-size:11.5px;color:var(--dim);letter-spacing:.14em;text-transform:uppercase;margin-top:3px}
+html[data-pet] .hero{display:none}
 .hclock{margin-left:auto;text-align:right}
 .hclock b{font-family:var(--mono);font-size:19px;display:block;line-height:1.1}
 .hclock span{font-size:11px;color:var(--dim)}
@@ -236,10 +237,11 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
   <div class="hrow">
     <div class="pip">🐕</div>
     <div>
-      <div class="hname">Zuse</div>
+      <div class="hname" id="hname">Zuse</div>
       <div class="hsub" id="hsub">Diabetic care log</div>
     </div>
     <div class="hctrl">
+      <button class="hbtn" id="btnPet" onclick="switchPet()" title="Switch dog">🐶</button>
       <button class="hbtn" id="btnWake" onclick="toggleWake()" title="Keep screen awake">💡</button>
       <button class="hbtn" id="btnTheme" onclick="toggleTheme()" title="Toggle theme">🌙</button>
     </div>
@@ -655,15 +657,28 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
 <div id="toast"></div>
 
 <script>
+/* ---------------- which dog ----------------
+   zuse-care-log.html is Zuse; ?pet=reggie is Reggie. Reggie's log, settings,
+   walk and photos live under their own keys (zuse_cfg@reggie, DB zuse-audio-reggie),
+   so Zuse's keys and data are exactly as before. Reggie syncs to his own sheet
+   through his own Apps Script copy (URL and key typed into his Setup).
+   The Android bridge is Zuse-only: reminders, the widget queue and the walk
+   service never see Reggie's page (see NAT and the visibilitychange below). */
+const PET=/[?&]pet=reggie\b/.test(location.search)?'reggie':'';
+const REGGIE_QUICK=['c_wet_dry_food','c_wet_food','walk','c_treats','c_dental_stick','poop','weewee','c_medicine'];
+function switchPet(){location.replace(PET?'zuse-care-log.html':'zuse-care-log.html?pet=reggie')}
+
 /* ---------------- storage (artifact-safe + phone-safe) ---------------- */
 const memBank={};
 const Store={
   async get(k){
+    if(PET)k+='@'+PET;
     try{ if(window.storage&&window.storage.get){const r=await window.storage.get(k); if(r&&r.value!=null)return r.value;} }catch(e){}
     try{ const v=localStorage.getItem(k); if(v!=null)return v; }catch(e){}
     return memBank[k]??null;
   },
   async set(k,v){
+    if(PET)k+='@'+PET;
     memBank[k]=v;
     try{ if(window.storage&&window.storage.set){await window.storage.set(k,v);} }catch(e){}
     try{ localStorage.setItem(k,v); }catch(e){}
@@ -679,7 +694,7 @@ const Media=(()=>{
     if(dbp)return dbp;
     dbp=new Promise((res,rej)=>{
       if(!window.indexedDB){rej('no indexeddb');return}
-      const r=indexedDB.open('zuse-audio',1);
+      const r=indexedDB.open(PET?'zuse-audio-'+PET:'zuse-audio',1); // own DB per dog: sweepMedia deletes what this log doesn't reference
       r.onupgradeneeded=()=>r.result.createObjectStore('clips');
       r.onsuccess=()=>res(r.result);
       r.onerror=()=>rej(r.error);
@@ -884,8 +899,16 @@ async function load(){
   const raw=await Store.get('zuse_entries');
   const c=await Store.get('zuse_cfg');
   if(c){try{cfg=Object.assign(cfg,JSON.parse(c))}catch(e){}}
+  else if(PET){ // Reggie's first open: no insulin routine or reminders, his sheet's own item names, this phone's name and theme
+    let z={};try{z=JSON.parse(localStorage.getItem('zuse_cfg')||'{}')}catch(e){}
+    Object.assign(cfg,{insulin:0,am:[],pm:[],notifOn:false,notifMiss:false,notifStock:false,carer:z.carer||'',theme:z.theme||'',customTypes:{
+      c_wet_dry_food:{n:'Wet + Dry Food',i:'🥣',c:'--food',u:'',d:1},c_wet_food:{n:'Wet Food',i:'🥫',c:'--food',u:'',d:1},
+      c_treats:{n:'Treats',i:'🍪',c:'--treat',u:'',d:1},c_dental_stick:{n:'Dental Stick',i:'🦴',c:'--treat',u:'',d:1},
+      c_medicine:{n:'Medicine',i:'💊',c:'--med',u:'',d:1}}});
+    await saveCfg();
+  }
   if(raw){try{entries=JSON.parse(raw)}catch(e){entries=[]}}
-  if(!raw){entries=buildSeed();await save()}
+  if(!raw){entries=PET?[]:buildSeed();await save()} // the seed is Zuse's history; Reggie's comes from his sheet
   const w=await Store.get('zuse_walk');
   if(w){try{walkState=JSON.parse(w)}catch(e){walkState=null}}
   const v=await Store.get('zuse_vet');
@@ -1515,7 +1538,7 @@ function renderToday(){
   tl.innerHTML='';
   if(!list.length){
     tl.innerHTML=dayOffset===0
-      ?'<div class="empty">Nothing logged yet today.<br>Start with the routine above.</div>'
+      ?`<div class="empty">Nothing logged yet today.${PET?'':'<br>Start with the routine above.'}</div>`
       :`<div class="empty">Nothing logged on ${esc(dayLabel(ds))}.</div>`;
   }
   else list.forEach(e=>tl.appendChild(evNode(e)));
@@ -1529,9 +1552,12 @@ function renderGlance(){
   const lastW=[...entries].filter(e=>e.type==='weight').sort((a,b)=>a.date<b.date?1:-1)[0];
   const lastG=[...entries].filter(e=>e.type==='glucose').sort((a,b)=>a.date<b.date?1:-1)[0];
   const g=document.getElementById('glance');
-  g.innerHTML=`
+  const cnt=t=>list.filter(e=>e.type===t).length;
+  g.innerHTML=(PET?`
+  <div class="card"><div class="k">Meals today</div><div class="v" style="color:var(--food)">${cnt('c_wet_dry_food')+cnt('c_wet_food')}</div><div class="d">wet + dry or wet food</div></div>
+  <div class="card"><div class="k">Treats today</div><div class="v" style="color:var(--treat)">${cnt('c_treats')}</div><div class="d">${cnt('c_dental_stick')} dental sticks</div></div>`:`
   <div class="card"><div class="k">Insulin today</div><div class="v" style="color:var(--insulin)">${sum('insulin')||0}<small> units</small></div><div class="d">${ins.length} of 2 shots</div></div>
-  <div class="card"><div class="k">Food today</div><div class="v" style="color:var(--food)">${sum('food')||0}<small> cans</small></div><div class="d">${sum('chicken')?sum('chicken')+'g chicken':'no chicken yet'}</div></div>
+  <div class="card"><div class="k">Food today</div><div class="v" style="color:var(--food)">${sum('food')||0}<small> cans</small></div><div class="d">${sum('chicken')?sum('chicken')+'g chicken':'no chicken yet'}</div></div>`)+`
   <div class="card"><div class="k">Walked</div><div class="v" style="color:var(--walk)">${wk}<small> min</small></div><div class="d">${list.filter(e=>e.type==='walk').length} walks</div></div>
   <div class="card"><div class="k">Last weigh-in</div><div class="v" style="color:var(--vet)">${lastW?lastW.qty:'—'}<small> kg</small></div><div class="d">${lastW?dayLabel(lastW.date):'not recorded'}${lastG?' · glucose '+lastG.qty:''}</div></div>`;
 }
@@ -2491,7 +2517,7 @@ async function exportJSON(){
   entries.forEach(e=>{if(e.trackId)ids.push(e.trackId)}); // walk routes ride in the same map
   const photos={};
   for(const id of ids){try{const b=await Media.get(id);if(b)photos[id]=await blobToDataUrl(b)}catch(e){}}
-  dl(`zuse-backup-${iso(new Date())}.json`,JSON.stringify({cfg,entries,photos},null,1),'application/json','Backup downloaded');
+  dl(`${PET||'zuse'}-backup-${iso(new Date())}.json`,JSON.stringify(Object.assign(PET?{pet:PET}:{},{cfg,entries,photos}),null,1),'application/json','Backup downloaded');
 }
 function importJSON(ev){
   const f=ev.target.files[0];if(!f)return;const r=new FileReader();
@@ -2499,6 +2525,7 @@ function importJSON(ev){
     let d;
     try{d=JSON.parse(r.result)}catch(e){toast('Could not read that file');return}
     if(!Array.isArray(d.entries)){toast("That file doesn't look like a Zuse backup");return}
+    if((d.pet||'')!==PET){toast(`That is ${d.pet?'Reggie':'Zuse'}'s backup. Switch dogs (🐶) to restore it.`);return} // or it would sync into the other dog's sheet
     if(!confirm(`Replace all ${entries.length} entries on this phone with the ${d.entries.length} in this backup?`))return;
     // Entries land first: one undecodable photo must not cost the whole log.
     // The carer name belongs to this phone, not to whichever phone made the backup.
@@ -2639,7 +2666,7 @@ function delCustomType(){
 /* ---------------- Android app bridge ---------------- */
 /* window.ZuseNative exists only inside the Android app (see android/). All of
    this is a no-op without it, so the PWA and the TWA run unchanged. */
-const NAT=window.ZuseNative||null;
+const NAT=PET?null:(window.ZuseNative||null); // Reggie's page must never replace Zuse's reminder plan or take his widget/walk queue
 /* The alarm list the app arms, for the next 14 days: feeding reminders, missed
    shots, and the day each tracked item will cross its low line. Ids are stable,
    so handing over the same plan again never repeats a notification. */
@@ -2748,9 +2775,19 @@ function tick(){
 }
 (async function(){
   await load();mergeCustomTypes();window.zuseReady=1;
+  if(PET){
+    document.documentElement.setAttribute('data-pet',PET);document.title='Reggie — Care Log';
+    document.getElementById('hname').textContent='Reggie';document.getElementById('btnPet').title='Switch to Zuse';
+    // Zuse's medicines stay out of Reggie's pickers; a sheet row naming one still pulls in as itself
+    ['insulin','samylin','pred','para','synulox','cerenia','chicken','carrot','treat','glucose','urine','food','dose'].forEach(k=>{if(T[k])T[k].h=1});
+    // In the Android app, the page left in memory must be Zuse's: the app refreshes his insulin reminders from it.
+    // Not at once on hide, so picking a photo or sharing doesn't throw Reggie's page away.
+    if(window.ZuseNative){let off=null;document.addEventListener('visibilitychange',()=>{
+      if(document.hidden){off=setTimeout(()=>location.replace('zuse-care-log.html'),18e4)}else clearTimeout(off)})}
+  }else document.getElementById('btnPet').title='Switch to Reggie';
   if(!cfg.theme){cfg.theme=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';saveCfg();}
   applyTheme();renderWakeBtn();if(cfg.wakeOn)acquireWake();
-  tileGrid(document.getElementById('quick'),QUICK);
+  tileGrid(document.getElementById('quick'),PET?REGGIE_QUICK.filter(k=>T[k]&&!T[k].h):QUICK);
   renderAllTypes();
   renderAll();renderWalkBar();renderVetBar();takeNative();if(walkState)armWalkAutoEnd();
   if(vetState){openVetSheet();toast('Vet visit resumed');}

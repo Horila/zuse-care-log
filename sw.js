@@ -5,7 +5,7 @@
  * this one. That is the right trade for an app opened many times a day.
  * Bump CACHE to evict old caches on activate.
  */
-const CACHE = 'zuse-v24';
+const CACHE = 'zuse-v25';
 const APP = './zuse-care-log.html';
 const SHELL = [APP, './index.html', './manifest.json'];
 const PERIODIC_SYNC_TAG = 'zuse-periodic-sync';
@@ -47,14 +47,17 @@ self.addEventListener('activate', ev => {
 self.addEventListener('fetch', ev => {
   const req = ev.request;
   if (req.method !== 'GET') return;
-  if (new URL(req.url).origin !== self.location.origin) return;
+  const u = new URL(req.url);
+  if (u.origin !== self.location.origin) return;
+  // ?pet=reggie is the same file: cache it under the bare URL, so both dogs share one, always-fresh copy
+  const key = u.pathname.endsWith('/zuse-care-log.html') ? u.origin + u.pathname : req;
 
   ev.respondWith((async () => {
     const cache = await caches.open(CACHE);
-    const hit = await cache.match(req);
+    const hit = await cache.match(key);
 
     const net = fetch(req).then(res => {
-      if (res && res.ok) cache.put(req, res.clone());
+      if (res && res.ok) cache.put(key, res.clone());
       return res;
     }).catch(async () => {
       if (hit) return hit;

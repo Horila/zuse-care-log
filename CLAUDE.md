@@ -297,6 +297,34 @@ the TWA are unchanged. Contract: `version`, `setPlan(json)`, `notify(id,title,bo
   text as its 4th arg), `shareVetSummary` uses `share`, `target=_blank` links go
   to `openExternal`, and the "Install on your phone" section is hidden.
 
+## Second dog: Reggie (`?pet=reggie`)
+
+`zuse-care-log.html?pet=reggie` is Reggie's log in the same app (🐶 in the
+header switches). `const PET` is `'reggie'` there and `''` for Zuse.
+- Storage: `Store` suffixes every key with `@reggie`, and photos/routes use the
+  DB `zuse-audio-reggie`. Zuse's keys and DB are untouched. Keep the DBs apart:
+  `sweepMedia` deletes every blob the current log doesn't reference.
+- First open: no seed, empty routines, reminders off, `carer`/`theme` copied
+  from Zuse's cfg, and five custom items spelled as in Reggie's sheet
+  (Wet + Dry Food, Wet Food, Treats, Dental Stick, Medicine). Zuse's medicines,
+  Canned Food and Treat get `h:1`. The hourglass and routine card are hidden by
+  CSS (`html[data-pet] .hero`), and At a glance shows meals and treats instead.
+- Android: `NAT` is null on Reggie's page, so it never sends a reminder plan,
+  drains the widget/walk queue, or starts the walk service. The background
+  `SyncJob` always loads the bare URL (Zuse). In the APK, Reggie's page goes
+  back to Zuse's after 3 minutes hidden, because a live page is what the app
+  refreshes Zuse's insulin reminders from.
+- Backups carry `pet:'reggie'`, and a restore refuses the other dog's file.
+- `sw.js` caches the page under the bare URL, so both dogs share one fresh copy.
+- Sync: Reggie's sheet ("Reggie's Diary", tab "Reginald
+  Schedule") has the same layout as Zuse's. It uses its own bound copy of
+  `zuse-sync-code.gs.txt` with only `SHEET_NAME` and `SECRET` changed. Leave its
+  `ALERT_EMAIL` and `VET_EMAIL` blank and never run `installStockAlerts` there,
+  or it sends Zuse's insulin and vet emails. The URL and secret are typed into
+  Reggie's Setup on each phone, never committed (this repo is public).
+- Ceiling: Reggie's "Dry Food" rows pull in as notes, since `dry food` is a
+  `TYPE_ALIASES` key with no `T.dry`. The 30-day vet summary still says "Zuse".
+
 ## Storage
 
 `Store` falls back through `window.storage` → `localStorage` → an in-memory
