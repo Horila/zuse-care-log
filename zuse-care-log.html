@@ -2311,7 +2311,9 @@ function renderSettings(){
 
 /* ---------------- Google Sheet sync ---------------- */
 function saveSyncCfg(){
-  cfg.syncUrl=document.getElementById('sSyncUrl').value.trim();
+  const v=document.getElementById('sSyncUrl').value.trim(),i=v.indexOf('#sync=');
+  if(i>=0){if(applySyncLink(v.slice(i))){document.getElementById('sSyncUrl').value=cfg.syncUrl;document.getElementById('sSyncKey').value=cfg.syncKey}return} // a whole setup link pasted in
+  cfg.syncUrl=v;
   cfg.syncKey=document.getElementById('sSyncKey').value.trim();
   saveCfg();toast('Sync settings saved');
 }
@@ -2863,12 +2865,14 @@ document.addEventListener('click',ev=>{
 /* ---------------- boot ---------------- */
 /* A one-time setup link, zuse-care-log.html[?pet=reggie]#sync=<urlencoded Web App URL>|<urlencoded key>,
    fills in Setup > Google Sheet sync on this phone and clears itself from the address bar. Only a
-   script.google.com web app URL is taken. Returns true when it ran a sync. */
-function applySyncLink(){
-  if(!location.hash.startsWith('#sync='))return false;
+   script.google.com web app URL is taken. Returns true when it ran a sync.
+   The Android app doesn't open links, so the same link can also be pasted whole into the Web App URL box (saveSyncCfg). */
+function applySyncLink(h){
+  const fromBar=h==null;if(fromBar)h=location.hash;
+  if(!h.startsWith('#sync='))return false;
   let u='',k='';
-  try{const r=location.hash.slice(6),i=r.search(/\||%7C/i);if(i>0){u=decodeURIComponent(r.slice(0,i));k=decodeURIComponent(r.slice(i).replace(/^(\||%7C)/i,''))}}catch(e){}
-  history.replaceState(null,'',location.pathname+location.search); // keep ?pet=, drop the key from the address bar
+  try{const r=h.slice(6),i=r.search(/\||%7C/i);if(i>0){u=decodeURIComponent(r.slice(0,i));k=decodeURIComponent(r.slice(i).replace(/^(\||%7C)/i,''))}}catch(e){}
+  if(fromBar)history.replaceState(null,'',location.pathname+location.search); // keep ?pet=, drop the key from the address bar
   if(!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(u)||!k.trim()){toast("That sync link doesn't look right");return false}
   cfg.syncUrl=u;cfg.syncKey=k.trim();saveCfg();toast('Sheet sync set up');syncNow();
   return true;
