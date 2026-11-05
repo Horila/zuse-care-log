@@ -209,7 +209,10 @@ public class MainActivity extends Activity {
     class Bridge {
         boolean ok() { return inApp(pageUrl); }
 
-        @JavascriptInterface public String version() { return "3.2"; }
+        @JavascriptInterface public String version() { return "3.3"; }
+
+        /** The walk in progress's route so far, as [[lat,lon,ms],...]. Read it before stopWalk, which clears it. */
+        @JavascriptInterface public String walkTrack() { return ok() ? WalkService.track(MainActivity.this) : "[]"; }
 
         /** Hand the walk to WalkService so it survives the app being closed. */
         @JavascriptInterface public void startWalk(String json) {

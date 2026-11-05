@@ -252,7 +252,7 @@ A native Android build (`android/`, written separately) injects `ZuseNative`;
 the TWA are unchanged. Contract: `version`, `setPlan(json)`, `notify(id,title,body)`,
 `notifPermission`/`requestNotifPermission`, `exactAlarms`/`openExactAlarmSettings`,
 `saveFile(name,mime,text)` (returns "" or an error), `share(text)`, `openExternal(url)`,
-`startWalk(json)`/`stopWalk()`/`takeEntries()`, `setSyncEvery(min)` (Setup box,
+`startWalk(json)`/`stopWalk()`/`takeEntries()`/`walkTrack()` (APK 3.3+), `setSyncEvery(min)` (Setup box,
 `cfg.bgSync`, 0 = off, floor 15) and `syncing(on)` (APK 3.0+, so feature-test them).
 - `syncNow` wraps each sync in `syncing(true/false)`, which holds a short `dataSync`
   foreground service (`SyncKeep`) so closing the app mid-sync doesn't freeze it.
@@ -262,6 +262,17 @@ the TWA are unchanged. Contract: `version`, `setPlan(json)`, `notify(id,title,bo
   `takeNative()` drains them on load, on becoming visible, and when the service
   pokes a still-loaded page. Ceiling: with the app fully closed the walk reaches
   the log and the sheet only on the next open, with its true start and end.
+- Walk routes (APK 3.3+): `startWalk` JSON carries `every` (seconds, `cfg.trackEvery`,
+  default 10, 0 = off; Setup box shown only when `NAT.walkTrack` exists). `WalkService`
+  keeps `{start,pts:[[lat,lon,ms],...]}` in prefs key `track`, reset only when `start`
+  changes (every app open re-arms the walk), drops fixes worse than 35m (`TRACK_ACC`).
+  `walkTrack()` returns the points; `endWalk` reads it **before** `stopWalk`, which
+  clears it. A natively ended walk carries `track` in its queue entry. The page stores
+  2+ points as a JSON Blob in `Media` under `trk_<uid>` and sets `e.trackId`;
+  `sweepMedia`, `exportJSON` and restore all include it. Routes never go to the sheet,
+  so other phones don't see them. The map (`openMap`/`drawRoute`) injects Leaflet 1.9.4
+  from unpkg with SRI on first open and uses Esri satellite + label tiles; `sw.js`
+  skips cross-origin requests, so none of it is cached and it needs a connection.
 - Widget: `QuickWidget` (Wee Wee / Poop) queues `{t,at}` through `QuickLog` into
   the same native queue as walks; `takeNative` logs it with the tap time and syncs.
   The tap also schedules a one-off `SyncJob`, which waits for `window.zuseReady`

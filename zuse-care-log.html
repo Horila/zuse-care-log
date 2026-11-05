@@ -200,6 +200,8 @@ nav{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(14,20,25,.
 .scrim.on{opacity:1;pointer-events:auto}
 .sheet{position:fixed;left:0;right:0;bottom:0;z-index:61;background:var(--surf);border-radius:22px 22px 0 0;border-top:1px solid var(--line);padding:8px 16px calc(20px + env(safe-area-inset-bottom));max-height:88vh;overflow-y:auto;transform:translateY(101%);transition:transform .26s cubic-bezier(.3,.9,.3,1);max-width:560px;margin:0 auto}
 .sheet.on{transform:none}
+#mapSheet{height:92vh;max-height:none;display:flex;flex-direction:column;overflow:hidden}
+#walkMap{flex:1;min-height:280px;border-radius:14px;overflow:hidden;background:#0b0f12}
 .grab{width:38px;height:4px;border-radius:99px;background:var(--line);margin:6px auto 14px}
 .sheet h2{font-size:19px;margin-bottom:14px}
 .fld{margin-bottom:12px}
@@ -245,7 +247,8 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
   </div>
   <div class="walkbar" id="walkBar">
     <span>🦮 Walking — <b class="mono" id="walkElapsed">0h 00m</b></span>
-    <button class="btn" style="width:auto;margin:0;padding:8px 14px;font-size:13px" onclick="endWalk()">End Walk</button>
+    <button class="btn sec" id="walkMapBtn" style="width:auto;margin:0;padding:8px 12px;font-size:13px;white-space:nowrap;display:none" onclick="openLiveMap()" title="Live route" aria-label="Live route">🗺</button>
+    <button class="btn" style="width:auto;margin:0;padding:8px 14px;font-size:13px;white-space:nowrap" onclick="endWalk()">End Walk</button>
   </div>
   <div class="walkbar" id="vetBar">
     <span>🏥 At the vets — <b class="mono" id="vetElapsed">0h 00m</b></span>
@@ -415,6 +418,7 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
       <p class="note" id="homeStatus" style="margin-bottom:10px">Not set.</p>
       <button class="btn sec" onclick="setHomeLocation()">Set home location (here)</button>
       <p class="note" style="margin-top:10px">A walk auto-ends once you are back within 2m of this pin, but only after the first 5 minutes have passed. GPS cannot resolve 2m on its own, so a reading counts when its error circle reaches the pin; readings worse than &plusmn;20m are ignored and only show the old nudge instead.</p>
+      <div class="fld" id="trackRow" style="display:none;margin:12px 0 0"><label>Walk route — record a point every how many seconds</label><input id="sTrackEvery" type="number" inputmode="numeric" min="0" step="1" onchange="setTrackEvery(this.value)"><p class="note" style="margin-top:6px">Each walk is drawn on a satellite map: live from the 🗺 button while walking, and on the walk's entry afterwards. 0 turns it off. Fewer points save battery. Needs Precise location allowed for the app. Routes stay on this phone and in the JSON backup; they don't go to the sheet, and, like photos, a route is lost on this phone if another phone changes that walk's date or time.</p></div>
     </div>
   </section>
   <section>
@@ -637,6 +641,15 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
   <label class="note" style="display:flex;gap:9px;align-items:center;margin-bottom:6px"><input type="checkbox" id="ctStk" style="width:auto"> Track stock for it</label>
   <button class="btn" onclick="saveCustomType()">Save item</button>
   <button class="btn dgr" id="ctDel" style="margin-top:9px;display:none" onclick="delCustomType()">Delete item</button>
+</div>
+
+<div class="sheet" id="mapSheet">
+  <div class="grab"></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px">
+    <h2 id="mapTitle" style="margin:0;font-size:16px">Walk route</h2>
+    <button class="btn sec" style="width:auto;margin:0;padding:9px 14px" onclick="closeSheet()">Close</button>
+  </div>
+  <div id="walkMap"></div>
 </div>
 
 <div id="toast"></div>
@@ -1016,6 +1029,7 @@ function renderWalkBar(){
   const start=new Date(`${walkState.date}T${walkState.time}:00`);
   const mins=Math.floor((new Date()-start)/6e4);
   document.getElementById('walkElapsed').textContent=`${Math.floor(mins/60)}h ${pad(mins%60)}m`;
+  document.getElementById('walkMapBtn').style.display=NAT&&NAT.walkTrack&&(cfg.trackEvery??10)>0?'':'none';
   bar.style.display='flex';
 }
 function startWalk(){
@@ -1027,14 +1041,25 @@ function startWalk(){
   armWalkAutoEnd();
   toast('Walk started');
 }
-function endWalk(end){
+function endWalk(end,track){
   if(!walkState)return;
   const start=new Date(`${walkState.date}T${walkState.time}:00`);
   const mins=Math.max(1,Math.round(((end||new Date())-start)/6e4));
+  // Read the route before stopWalk: stopping the service clears it.
+  if(track==null&&NAT&&NAT.walkTrack)try{track=JSON.parse(NAT.walkTrack())}catch(e){}
   disarmWalkAutoEnd(!!end); // an end time came from the native service, which stops itself after the sync
   walkState=null;
   Store.set('zuse_walk','');
-  add('walk',mins,'',start);
+  let extra=null;
+  if(Array.isArray(track)&&track.length>1){
+    extra={trackId:'trk_'+uid()};
+    const id=extra.trackId;
+    Media.save(id,new Blob([JSON.stringify(track)],{type:'application/json'})).catch(()=>{
+      const w=entries.find(x=>x.trackId===id);if(w){delete w.trackId;save();renderAll()}
+      toast("Walk logged, but the route couldn't be saved — phone storage may be full");
+    });
+  }
+  add('walk',mins,'',start,extra);
   renderWalkBar();
   toast(`Walk logged: ${mins} min`);
 }
@@ -1056,7 +1081,7 @@ function armWalkAutoEnd(){
   walkHinted=false;
   // In the Android app the walk lives in a native service that keeps going, and auto-ends, with the app closed.
   if(NAT&&NAT.startWalk){
-    try{NAT.startWalk(JSON.stringify({start:+new Date(`${walkState.date}T${walkState.time}:00`),lat:cfg.homeLat,lon:cfg.homeLon,radius:HOME_RADIUS,grace:WALK_GRACE_MS,acc:MAX_FIX_ACC}))}catch(e){}
+    try{NAT.startWalk(JSON.stringify({start:+new Date(`${walkState.date}T${walkState.time}:00`),lat:cfg.homeLat,lon:cfg.homeLon,radius:HOME_RADIUS,grace:WALK_GRACE_MS,acc:MAX_FIX_ACC,every:NAT.walkTrack?(cfg.trackEvery??10):0}))}catch(e){}
     return;
   }
   if(cfg.homeLat==null||!navigator.geolocation)return;
@@ -1092,7 +1117,7 @@ function takeNative(qs){
       if(!walkState)return;
       // the same walk only: one ended and restarted in the app meanwhile is a different one
       if(Math.abs(new Date(`${walkState.date}T${walkState.time}:00`)-x.start)>6e4)return;
-      endWalk(new Date(x.end));n++;return;
+      endWalk(new Date(x.end),x.track||null);n++;return;
     }
     if(T[x.t]&&x.at){add(x.t,T[x.t].d,'',new Date(x.at));n++}
   });
@@ -1103,6 +1128,81 @@ function haversine(lat1,lon1,lat2,lon2){
   const dLat=toRad(lat2-lat1),dLon=toRad(lon2-lon1);
   const a=Math.sin(dLat/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+/* ---------------- walk route map ----------------
+   A route is [[lat,lon,ms],...], recorded by the Android WalkService and kept in Media
+   as JSON under e.trackId. Leaflet and the satellite tiles load only when a map opens,
+   so the shell stays small and works offline; the map itself needs a connection. */
+function trackKm(pts){
+  let m=0;
+  for(let i=1;i<(pts||[]).length;i++)m+=haversine(pts[i-1][0],pts[i-1][1],pts[i][0],pts[i][1]);
+  return m/1000;
+}
+const ESRI='https://server.arcgisonline.com/ArcGIS/rest/services/';
+let leafletP=null, walkMap=null, mapLayer=null, mapPoll=null, mapFitted=false, mapGen=0;
+function loadLeaflet(){
+  if(leafletP)return leafletP;
+  leafletP=new Promise((res,rej)=>{
+    const css=document.createElement('link');css.rel='stylesheet';css.crossOrigin='anonymous';
+    css.integrity='sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H';
+    css.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';document.head.appendChild(css);
+    const s=document.createElement('script');s.crossOrigin='anonymous';
+    s.integrity='sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH';
+    s.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    s.onload=()=>res(window.L);s.onerror=()=>{leafletP=null;s.remove();css.remove();rej()};
+    document.head.appendChild(s);
+  });
+  return leafletP;
+}
+async function openMap(pts,title,live){
+  clearInterval(mapPoll);mapPoll=null;mapFitted=false;
+  const g=++mapGen; // closing the sheet or opening another map while Leaflet loads makes this call stale
+  document.getElementById('mapTitle').textContent=title;
+  openSheet('mapSheet');
+  let L;try{L=await loadLeaflet()}catch(e){if(g===mapGen){closeSheet();toast('The map needs an internet connection')}return}
+  if(g!==mapGen)return;
+  if(!walkMap){
+    walkMap=L.map('walkMap');
+    L.tileLayer(ESRI+'World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Imagery &copy; Esri, Maxar, Earthstar Geographics'}).addTo(walkMap);
+    L.tileLayer(ESRI+'Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',{maxZoom:19}).addTo(walkMap);
+    L.tileLayer(ESRI+'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',{maxZoom:19}).addTo(walkMap);
+  }
+  // The sheet slides in over .26s and Leaflet measures its box, so draw once it has landed.
+  setTimeout(()=>{if(g!==mapGen)return;walkMap.invalidateSize();drawRoute(pts,title,live)},300);
+  if(live)mapPoll=setInterval(()=>{
+    if(!walkState||!NAT||!NAT.walkTrack){clearInterval(mapPoll);mapPoll=null;return}
+    let p=[];try{p=JSON.parse(NAT.walkTrack())}catch(e){}
+    drawRoute(p,title,1);
+  },Math.max(3,cfg.trackEvery||10)*1e3);
+}
+function drawRoute(pts,title,live){
+  if(!walkMap||!window.L)return;
+  const L=window.L, ll=(pts||[]).map(p=>[p[0],p[1]]), c=cvar('--walk');
+  if(mapLayer)mapLayer.remove();
+  mapLayer=L.layerGroup().addTo(walkMap);
+  document.getElementById('mapTitle').textContent=ll.length>1?`${title} · ${trackKm(pts).toFixed(2)} km`:ll.length?title:`${title} · waiting for GPS (needs Precise location)…`;
+  if(ll.length>1)L.polyline(ll,{color:c,weight:5,opacity:.95}).addTo(mapLayer);
+  if(ll.length){
+    L.circleMarker(ll[0],{radius:7,color:'#fff',weight:2,fillColor:'#2F9A5C',fillOpacity:1}).bindTooltip('Start').addTo(mapLayer);
+    if(ll.length>1||live)L.circleMarker(ll[ll.length-1],{radius:8,color:'#fff',weight:2,fillColor:live?c:'#FF6B6B',fillOpacity:1}).bindTooltip(live?'Now':'End').addTo(mapLayer);
+  }
+  // Fit once per opening, so a live redraw doesn't undo the user's own zoom; just pan to keep "now" in view.
+  if(live&&mapFitted&&ll.length&&!walkMap.getBounds().contains(ll[ll.length-1]))walkMap.panTo(ll[ll.length-1]);
+  if(mapFitted)return;
+  if(ll.length>1){walkMap.fitBounds(ll,{padding:[30,30],maxZoom:18});mapFitted=true}
+  else if(ll.length){walkMap.setView(ll[0],17);mapFitted=true}
+  else if(cfg.homeLat!=null)walkMap.setView([cfg.homeLat,cfg.homeLon],17);
+  else walkMap.setView([54,-2],5);
+}
+function openLiveMap(){
+  let p=[];try{p=JSON.parse(NAT.walkTrack())}catch(e){}
+  openMap(p,'Walk so far',1);
+}
+function setTrackEvery(v){
+  let s=String(v).trim()===''?10:Math.round(Number(v));if(!(s>=0))s=10;if(s>0&&s<3){s=3;toast('3 seconds is the shortest, to save battery')}
+  cfg.trackEvery=s;saveCfg();document.getElementById('sTrackEvery').value=s;
+  renderWalkBar();
+  if(walkState)armWalkAutoEnd(); // a walk in progress picks it up; the route so far is kept
 }
 /* ---------------- vet visit stopwatch ---------------- */
 let vetState=null;
@@ -1364,6 +1464,16 @@ function evNode(e,showDel){
       pb.replaceWith(wrap);
     };
     d.querySelector('.b').appendChild(pb);
+  }
+  if(e.trackId){
+    const rb=document.createElement('button');
+    rb.className='playBtn';rb.style.color='var(--walk)';rb.textContent='🗺 View route';
+    rb.onclick=async()=>{
+      let pts=null;try{const b=await Media.get(e.trackId);if(b)pts=JSON.parse(await b.text())}catch(err){}
+      if(!pts){rb.textContent='Route unavailable';rb.disabled=true;return}
+      openMap(pts,`${fmt12(e.time)} · ${e.qty} min`);
+    };
+    d.querySelector('.b').appendChild(rb);
   }
   (e.photos||[]).forEach(ph=>{
     const fig=document.createElement('figure');
@@ -1861,7 +1971,7 @@ async function sweepMedia(){
   if(!entries.length)return; // an empty log means load() failed; don't wipe
   try{
     const keep=new Set(sheetPhotos.map(ph=>ph.id)); // an open sheet counts as a reference
-    entries.forEach(e=>{if(e.audioId)keep.add(e.audioId);(e.photos||[]).forEach(p=>keep.add(p.id))});
+    entries.forEach(e=>{if(e.audioId)keep.add(e.audioId);if(e.trackId)keep.add(e.trackId);(e.photos||[]).forEach(p=>keep.add(p.id))});
     for(const k of await Media.keys())if(!keep.has(k)){await Media.delete(k);dropPhotoUrl(k)}
   }catch(e){}
 }
@@ -2319,6 +2429,7 @@ function closeSheet(){
   document.getElementById('sumSheet').classList.remove('on');
   document.getElementById('featuresSheet').classList.remove('on');
   document.getElementById('typeSheet').classList.remove('on');
+  document.getElementById('mapSheet').classList.remove('on');clearInterval(mapPoll);mapPoll=null;mapGen++;
 }
 function saveEntry(){
   const o={type:document.getElementById('fType').value,
@@ -2377,6 +2488,7 @@ async function exportJSON(){
   const ids=[];
   entries.forEach(e=>{if(e.audioId)ids.push(e.audioId);(e.photos||[]).forEach(ph=>ids.push(ph.id))});
   if(ids.length)toast(`Packing ${ids.length} photo${ids.length>1?'s':''}…`);
+  entries.forEach(e=>{if(e.trackId)ids.push(e.trackId)}); // walk routes ride in the same map
   const photos={};
   for(const id of ids){try{const b=await Media.get(id);if(b)photos[id]=await blobToDataUrl(b)}catch(e){}}
   dl(`zuse-backup-${iso(new Date())}.json`,JSON.stringify({cfg,entries,photos},null,1),'application/json','Backup downloaded');
@@ -2398,7 +2510,7 @@ function importJSON(ev){
     renderAll();
     let n=0,bad=0;
     for(const id of Object.keys(d.photos||{})){
-      try{await Media.save(id,await dataUrlToBlob(d.photos[id]));n++}catch(e){bad++}
+      try{await Media.save(id,await dataUrlToBlob(d.photos[id]));if(!id.startsWith('trk_'))n++}catch(e){bad++}
     }
     renderAll();
     toast(`Backup restored${n?` · ${n} photo${n>1?'s':''}`:''}${bad?` · ${bad} failed`:''}`);
@@ -2653,6 +2765,7 @@ function tick(){
   if(NAT){
     document.getElementById('installSec').style.display='none';
     if(NAT.setSyncEvery){document.getElementById('bgSyncRow').style.display='block';setBgSync(cfg.bgSync??30)}
+    if(NAT.walkTrack){document.getElementById('trackRow').style.display='block';document.getElementById('sTrackEvery').value=cfg.trackEvery??10}
     // ask once, on the first open inside the app; Setup has the button after that
     try{if(!cfg.notifAsked&&NAT.notifPermission()==='default'){cfg.notifAsked=1;saveCfg();NAT.requestNotifPermission()}}catch(e){}
   }

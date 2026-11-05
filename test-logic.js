@@ -51,7 +51,7 @@ const code = [
   grabConst('HOME_RADIUS'), grabConst('LOW_DAYS'), grabConst('LOW_DAYS_OVERRIDE'),
   'const pad=n=>String(n).padStart(2,"0");',
   'const iso=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;',
-  grab('shouldAutoEnd'), grab('haversine'),
+  grab('shouldAutoEnd'), grab('haversine'), grab('trackKm'),
   grabConst('BOTTLE'), grabConst('LOW_LEFT'), grabConst('PER_SHOT'), grabConst('FIXED_RATE'), grabConst('isoBack'),
   grab('usedSince'), grab('rateOver'), grab('dailyUse'),
   grab('stockLeft'), grab('stockDetail'), grab('trackedStock'), grab('stockSame'), grab('mergeStockRow'),
@@ -72,7 +72,7 @@ const code = [
 // declaring them inside the same function scope.
 const api = new Function('T', 'esc', 'TYPE_ALIASES',
   'let entries=[],cfg={gap:12,stock:{}},stockWin=14;const saveCfg=()=>{};\n' + code +
-  '\nreturn {shouldAutoEnd,haversine,usedSince,rateOver,dailyUse,stockLeft,stockDetail,' +
+  '\nreturn {shouldAutoEnd,haversine,trackKm,usedSince,rateOver,dailyUse,stockLeft,stockDetail,' +
   'trackedStock,stockSame,mergeStockRow,lowStock,stockLabel,series,vetSummary,syncErr,isoBack,' +
   'syncPull,syncPush,applyTombs,currentRoutine,routineDone,forget,revive,queueUpd,sheetNote,carerOf,typeKeyFromSheetType,' +
   'LOGGABLE,keyOf,cleanType,customKey,nameClash,mergeCustomTypes,adoptSrcType,notifPlan,' +
@@ -97,6 +97,14 @@ ok(!api.shouldAutoEnd(0, 5, 299999), 'one ms short of grace keeps walking');
 ok(api.shouldAutoEnd(0, 5, 300000), 'grace opens at exactly 5 min');
 ok(api.shouldAutoEnd(22, 20, 600e3), '22m with a 20m fix is the ceiling');
 ok(!api.shouldAutoEnd(23, 20, 600e3), '23m with a 20m fix is out');
+
+/* ---- walk route distance ---- */
+eq(api.trackKm([]), 0, 'an empty route has no distance');
+eq(api.trackKm([[51.5, -0.1, 0]]), 0, 'a single point has no distance');
+eq(api.trackKm(undefined), 0, 'a missing route has no distance');
+// 0.01 deg of latitude is 1.112 km anywhere; two legs add up, out and back counts both ways.
+eq(Math.round(api.trackKm([[51.5, -0.1, 0], [51.51, -0.1, 1]]) * 1000), 1112, 'one leg north');
+eq(Math.round(api.trackKm([[51.5, -0.1, 0], [51.51, -0.1, 1], [51.5, -0.1, 2]]) * 1000), 2224, 'out and back sums both legs');
 
 /* ---- haversine sanity ---- */
 ok(Math.abs(api.haversine(51.5, -0.12, 51.5, -0.12)) < 1e-6, 'zero distance to self');
