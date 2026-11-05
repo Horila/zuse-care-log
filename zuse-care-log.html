@@ -674,7 +674,44 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
    Reggie never touches Zuse's plan or background sync (see NAT and the
    visibilitychange below). */
 const PET=/[?&]pet=reggie\b/.test(location.search)?'reggie':'';
-const REGGIE_QUICK=['c_wet_dry_food','c_wet_food','walk','c_van_trip','c_treats','c_dental_stick','poop','weewee','c_medicine'];
+/* Reggie's quick tiles, in order: [item key, fixed qty, label, icon]; blanks fall back to the item's own. A fixed qty logs
+   at one tap (toilet and accident keep their 💦/💩 as text). In the Log tab, tileGrid swaps those two items for these pairs. */
+const REGGIE_PAIRS={c_toilet:[['c_toilet','💩','Poo','💩'],['c_toilet','💦','Wee','💧']],c_accident:[['c_accident','💩','Accident','💩'],['c_accident','💦','Accident','💦']]};
+const REGGIE_QUICK=[['c_food'],['c_treats','','Treat'],['c_chicken'],['c_dental_stick','','Dental stick'],['walk'],['c_work'],...REGGIE_PAIRS.c_toilet,
+  ['c_medicine'],['c_play'],['c_sick','','Vomited'],['weight'],['wormer','','Parasite treatment'],...REGGIE_PAIRS.c_accident];
+const textQty=t=>PET&&(t==='c_toilet'||t==='c_accident'); // their qty is the 💦/💩 itself, not a number
+/* Reggie's items, ONE place (name -> icon, colour, unit, default amount). The names are spelled exactly as his sheet's
+   TYPE column, so rows pull in as the item and push back unchanged. `i` is refreshed by the rv:2 upgrade; stk = stockable.
+   c_work is the van trip (kind 'van'); an older c_van_trip is kept, hidden, so its entries still render. */
+const REGGIE_ITEMS={
+  c_food:{n:'Food',i:'🥫',c:'--food',u:'',d:1,stk:1},
+  c_wet_dry_food:{n:'Wet + Dry Food',i:'🥫',c:'--food',u:'',d:1,stk:1},
+  c_wet_food:{n:'Wet Food',i:'🥫',c:'--food',u:'',d:1,stk:1},
+  c_chicken:{n:'Chicken 🍗',i:'🍗',c:'--treat',u:'g',d:''},
+  c_medicine:{n:'Medicine',i:'💊',c:'--med',u:'',d:2,stk:1},
+  c_treats:{n:'Treats',i:'🍬',c:'--treat',u:'',d:1,stk:1},
+  c_dental_stick:{n:'Dental Stick',i:'🦴',c:'--treat',u:'',d:1,stk:1},
+  c_toilet:{n:'Toilet 🚻',i:'🚻',c:'--mu',u:'',d:''}, // qty is '💦' or '💩' (text)
+  c_accident:{n:'Accident',i:'🚨',c:'--alert',u:'',d:1}, // qty is '💦' or '💩' (text) from his tiles, "1" in older rows
+  c_work:{n:'Work 🚚',i:'🚚',c:'--walk',u:'min',d:''},
+  c_play:{n:'Play time 🥎',i:'🥎',c:'--walk',u:'min',d:''},
+  c_training:{n:'Training',i:'🎓',c:'--walk',u:'min',d:''},
+  c_promax:{n:'Promax',i:'💊',c:'--med',u:'',d:''},
+  c_bath:{n:'Bath 🛁',i:'🛁',c:'--walk',u:'',d:1},
+  c_sick:{n:'Sick 🤮',i:'🤢',c:'--alert',u:'',d:1}
+};
+const plainName=t=>t.n.replace(/ ?[^\x00-\x7F]+$/,''); // 'Chicken 🍗' -> 'Chicken' where the icon already shows the emoji
+const REGGIE_AM=[['c_food',1],['c_chicken',''],['c_medicine',2]], REGGIE_PM=[['c_food',1]];
+/* One-time upgrade (cfg.rv 2) and first-open fill: add every missing item, refresh the icon of the ones he has (never a
+   name), hide the old c_van_trip, and swap the routines only if they are still an earlier default (or empty). */
+function reggieUpgrade(){
+  const ct=cfg.customTypes=cfg.customTypes||{}, same=(a,b)=>JSON.stringify(a)===JSON.stringify(b), cl=a=>JSON.parse(JSON.stringify(a));
+  Object.keys(REGGIE_ITEMS).forEach(k=>{if(ct[k])ct[k].i=REGGIE_ITEMS[k].i;else ct[k]=Object.assign({},REGGIE_ITEMS[k])});
+  if(ct.c_van_trip)ct.c_van_trip.h=1;
+  const oldAm=[['c_wet_dry_food',1],['c_dental_stick',1],['c_treats',1]], oldPm=[['c_wet_dry_food',1],['c_treats',1]];
+  if((same(cfg.am,[])&&same(cfg.pm,[]))||(same(cfg.am,oldAm)&&same(cfg.pm,oldPm))){cfg.am=cl(REGGIE_AM);cfg.pm=cl(REGGIE_PM)}
+  cfg.rv=2;
+}
 function switchPet(){location.replace(PET?'zuse-care-log.html':'zuse-care-log.html?pet=reggie')}
 
 /* ---------------- storage (artifact-safe + phone-safe) ---------------- */
@@ -907,14 +944,15 @@ function buildSeed(){
 async function load(){
   const raw=await Store.get('zuse_entries');
   const c=await Store.get('zuse_cfg');
-  if(c){try{cfg=Object.assign(cfg,JSON.parse(c))}catch(e){}}
+  if(c){
+    try{cfg=Object.assign(cfg,JSON.parse(c))}catch(e){}
+    if(PET&&cfg.rv!==2){reggieUpgrade();await saveCfg()}
+  }
   else if(PET){ // Reggie's first open: his feeding routine and reminders, his sheet's own item names, this phone's name, theme and home
     let z={};try{z=JSON.parse(localStorage.getItem('zuse_cfg')||'{}')}catch(e){}
-    Object.assign(cfg,{insulin:0,am:[['c_wet_dry_food',1],['c_dental_stick',1],['c_treats',1]],pm:[['c_wet_dry_food',1],['c_treats',1]],amTime:'11:30',pmTime:'23:30',
-      feedAm:'11:25',feedPm:'23:25',notifOn:true,notifMiss:false,notifStock:true,carer:z.carer||'',theme:z.theme||'',homeLat:z.homeLat??null,homeLon:z.homeLon??null,homeAcc:z.homeAcc??null,customTypes:{
-      c_wet_dry_food:{n:'Wet + Dry Food',i:'🥣',c:'--food',u:'',d:1,stk:1},c_wet_food:{n:'Wet Food',i:'🥫',c:'--food',u:'',d:1,stk:1},
-      c_treats:{n:'Treats',i:'🍪',c:'--treat',u:'',d:1,stk:1},c_dental_stick:{n:'Dental Stick',i:'🦴',c:'--treat',u:'',d:1,stk:1},
-      c_medicine:{n:'Medicine',i:'💊',c:'--med',u:'',d:1,stk:1},c_van_trip:{n:'Van Trip',i:'🚐',c:'--walk',u:'min',d:''}}});
+    Object.assign(cfg,{insulin:0,am:[],pm:[],amTime:'11:30',pmTime:'23:30',
+      feedAm:'11:25',feedPm:'23:25',notifOn:true,notifMiss:false,notifStock:true,carer:z.carer||'',theme:z.theme||'',homeLat:z.homeLat??null,homeLon:z.homeLon??null,homeAcc:z.homeAcc??null,customTypes:{}});
+    reggieUpgrade();
     await saveCfg();
   }
   if(raw){try{entries=JSON.parse(raw)}catch(e){entries=[]}}
@@ -977,8 +1015,11 @@ document.addEventListener('visibilitychange',()=>{
 
 /* ---------------- core log ---------------- */
 function add(type,qty,note,when,extra){
-  const d=when||new Date();
-  const e={id:uid(),date:iso(d),time:hm(d),type,qty:qty===''?'':Number(qty),note:note||''};
+  let d=when||new Date();
+  // ponytail: the sheet's dedupe key is date|time|type, so two toilet (or accident) entries in one minute would be one row; the later
+  // one moves a minute on. Reggie's only; a bump can land ahead of "now" by a minute per extra tap.
+  if(textQty(type))while(entries.some(x=>x.type===type&&x.date===iso(d)&&x.time===hm(d)))d=new Date(+d+6e4);
+  const e={id:uid(),date:iso(d),time:hm(d),type,qty:qty===''||textQty(type)?qty:Number(qty),note:note||''}; // toilet's and accident's qty is the 💦/💩
   if(extra)Object.assign(e,extra);
   if(cfg.carer)e.by=cfg.carer;
   entries.push(e);revive(e);
@@ -1085,7 +1126,7 @@ function startWalk(kind){
 }
 function endWalk(end,track,kind){
   if(!walkState)return;
-  const van=(kind||walkState.kind)==='van', ty=van&&T.c_van_trip?'c_van_trip':'walk', nm=van?'Van trip':'Walk'; // before walkState is cleared below
+  const van=(kind||walkState.kind)==='van', ty=van&&T.c_work?'c_work':'walk', nm=van?'Van trip':'Walk'; // before walkState is cleared below
   const start=new Date(`${walkState.date}T${walkState.time}:00`);
   const mins=Math.max(1,Math.round(((end||new Date())-start)/6e4));
   // Read the route before stopWalk: stopping the service clears it.
@@ -1163,6 +1204,7 @@ function takeNative(qs){
       if(Math.abs(new Date(`${walkState.date}T${walkState.time}:00`)-x.start)>6e4)return;
       endWalk(new Date(x.end),x.track||null,x.kind);n++;return;
     }
+    if(PET&&x.at&&(x.t==='weewee'||x.t==='poop')){add('c_toilet',x.t==='poop'?'💩':'💦','',new Date(x.at));n++;return} // Reggie's widget taps
     if(T[x.t]&&x.at){add(x.t,T[x.t].d,'',new Date(x.at));n++}
   });
   if(n&&cfg.syncUrl&&cfg.syncKey)syncNow();
@@ -1374,7 +1416,7 @@ function hgFlip(after){
 /* Zuse's glass counts from the last shot, Reggie's from his last meal: KEY is the
    type(s) that restart it, and the wording follows. */
 function renderRing(){
-  const KEY=PET?['c_wet_dry_food','c_wet_food']:['insulin'];
+  const KEY=PET?['c_food','c_wet_dry_food','c_wet_food']:['insulin'];
   const last=KEY.map(lastOf).filter(Boolean).sort((a,b)=>b-a)[0]||null, now=new Date();
   const hg=document.getElementById('hg');
   const st=document.getElementById('state'), stx=document.getElementById('stateTx');
@@ -1383,7 +1425,7 @@ function renderRing(){
     document.getElementById('ringBig').textContent='—';
     document.getElementById('ringLbl').textContent=PET?'no meals yet':'no shots yet';
     document.getElementById('hTitle').textContent=PET?'No meal logged':'No insulin logged';
-    document.getElementById('hSub').textContent=PET?'Tap 🥣 below to record the first meal.':'Tap 💉 below to record the first shot.';
+    document.getElementById('hSub').textContent=PET?'Tap 🥫 below to record the first meal.':'Tap 💉 below to record the first shot.';
     document.getElementById('hMore').textContent='';
     st.style.color=cvar('--mu');st.style.borderColor=cvar('--line');stx.textContent='Waiting';
     return;
@@ -1451,7 +1493,7 @@ function renderChecks(){
     const b=document.createElement('button');
     const k=w+i, arm=armedChk===k&&!done[i];
     b.className='chk'+(done[i]?' on':'')+(arm?' arm':'');
-    b.innerHTML=`<span class="box">${done[i]?'✓':''}</span><span class="nm">${arm?`<b>Tap again</b><small>to log it</small>`:`<b>${PET?T[ty].n:T[ty].n.split(' ')[0]}</b><small>${T[ty].i} ${q}</small>`}</span>`;
+    b.innerHTML=`<span class="box">${done[i]?'✓':''}</span><span class="nm">${arm?`<b>Tap again</b><small>to log it</small>`:`<b>${PET?plainName(T[ty]):T[ty].n.split(' ')[0]}</b><small>${T[ty].i} ${q}</small>`}</span>`;
     b.onclick=()=>{
       if(done[i]){toast(T[ty].n+' already logged');return}
       // first tap arms (3s), second tap on the same item logs; <350ms is a double-tap, ignored
@@ -1460,7 +1502,7 @@ function renderChecks(){
       armedChk='';clearTimeout(armTimer);
       if(ty==='insulin'&&!insulinGuardOk())return;
       let qty=q;
-      if(ty==='chicken'){qty=chickenQty(q);if(qty===null)return}
+      if(ty==='chicken'||(PET&&ty==='c_chicken')){qty=chickenQty(q);if(qty===null)return}
       logged(add(ty,qty,''));
     };
     box.appendChild(b);
@@ -1485,7 +1527,7 @@ function runRoutine(w){
   for(const [i,[ty,q]] of cfg[w].entries()){if(done[i])continue;
     if(ty==='insulin'&&skipInsulin)continue;
     let qty=q;
-    if(ty==='chicken'){qty=chickenQty(q);if(qty===null){toast('Cancelled — nothing logged');return}}
+    if(ty==='chicken'||(PET&&ty==='c_chicken')){qty=chickenQty(q);if(qty===null){toast('Cancelled — nothing logged');return}}
     batch.push({id:uid(),date,time,type:ty,qty,note:''});
   }
   if(!batch.length){toast(skipInsulin?'Insulin skipped — nothing else left':'Nothing left in that routine');return}
@@ -1590,8 +1632,8 @@ function renderGlance(){
   const g=document.getElementById('glance');
   const cnt=t=>list.filter(e=>e.type===t).length;
   g.innerHTML=(PET?`
-  <div class="card"><div class="k">Meals today</div><div class="v" style="color:var(--food)">${cnt('c_wet_dry_food')+cnt('c_wet_food')}</div><div class="d">wet + dry or wet food</div></div>
-  <div class="card"><div class="k">Treats today</div><div class="v" style="color:var(--treat)">${cnt('c_treats')}</div><div class="d">${cnt('c_dental_stick')} dental sticks</div></div>`:`
+  <div class="card"><div class="k">Meals today</div><div class="v" style="color:var(--food)">${cnt('c_food')+cnt('c_wet_dry_food')+cnt('c_wet_food')}</div><div class="d">food, or wet + dry</div></div>
+  <div class="card"><div class="k">Toilet today</div><div class="v" style="color:var(--mu)">${cnt('c_toilet')}</div><div class="d">💦 ${list.filter(e=>e.qty==='💦').length} · 💩 ${list.filter(e=>e.qty==='💩').length}</div></div>`:`
   <div class="card"><div class="k">Insulin today</div><div class="v" style="color:var(--insulin)">${sum('insulin')||0}<small> units</small></div><div class="d">${ins.length} of 2 shots</div></div>
   <div class="card"><div class="k">Food today</div><div class="v" style="color:var(--food)">${sum('food')||0}<small> cans</small></div><div class="d">${sum('chicken')?sum('chicken')+'g chicken':'no chicken yet'}</div></div>`)+`
   <div class="card"><div class="k">Walked</div><div class="v" style="color:var(--walk)">${wk}<small> min</small></div><div class="d">${list.filter(e=>e.type==='walk').length} walks</div></div>
@@ -1965,13 +2007,16 @@ function vetSummary(days=30){
     L.push('Weight: never recorded');
   }
   if(PET){
-    const meals=count('c_wet_dry_food')+count('c_wet_food');
+    const meals=count('c_food')+count('c_wet_dry_food')+count('c_wet_food'), tl=q=>inRange.filter(e=>e.type==='c_toilet'&&e.qty===q).length;
     L.push(`Meals: ${meals} total, ${(meals/n).toFixed(1)}/day avg over ${n} days`);
-    L.push(`Treats: ${count('c_treats')}, dental sticks: ${count('c_dental_stick')}`);
-    L.push(`Walks: ${count('walk')} walks, ${Math.round(sum('walk')/n)} min/day avg`);
-    L.push(`Van trips: ${count('c_van_trip')}, ${Math.round(sum('c_van_trip'))} min total`);
-    L.push(`Vet visits: ${count('vet')}`);
+    L.push(`Chicken: ${Math.round(sum('c_chicken'))} g total`);
     L.push(`Medicine: ${count('c_medicine')} doses`);
+    L.push(`Toilet: ${tl('💦')} wee, ${tl('💩')} poop`);
+    L.push(`Accidents: ${count('c_accident')}`);
+    L.push(`Walks: ${count('walk')} walks, ${Math.round(sum('walk')/n)} min/day avg`);
+    L.push(`Van trips: ${count('c_work')+count('c_van_trip')}, ${Math.round(sum('c_work')+sum('c_van_trip'))} min total`);
+    L.push(`Play: ${Math.round(sum('c_play'))} min, training: ${Math.round(sum('c_training'))} min`);
+    L.push(`Vet visits: ${count('vet')}`);
   }else{
   const gr=series('glucose').filter(pt=>pt.d>=from);
   if(gr.length)L.push(`Glucose: ${gr.map(pt=>`${pt.v} on ${pt.d}`).join(', ')}`);
@@ -2088,12 +2133,16 @@ async function renderSheetPhotos(){
 /* ---------------- quick grid ---------------- */
 function tileGrid(el,keys){
   el.innerHTML='';
-  keys.forEach(k=>{
-    const t=T[k],b=document.createElement('button');b.className='q';
+  if(PET)keys=keys.flatMap(k=>REGGIE_PAIRS[k]||[k]); // Reggie's toilet and accident are one item each, two taps
+  keys.forEach(kk=>{
+    // a key, or a [key, fixed qty, label, icon] spec (REGGIE_QUICK); Reggie's tiles drop the emoji his sheet names carry (the icon shows it) and call c_work a van trip
+    const[k,fq,lbl,ic]=Array.isArray(kk)?kk:[kk],t=Object.assign({},T[k],PET?{n:k==='c_work'?'Van trip':plainName(T[k])}:{},lbl?{n:lbl}:{},ic?{i:ic}:{}),b=document.createElement('button');b.className='q';
     b.style.setProperty('--c',cvar(t.c));
     b.innerHTML=`<span class="ic">${t.i}</span><span class="nm">${t.n}</span>`;
     b.onclick=()=>{
-      if(k==='walk'||(PET&&k==='c_van_trip')){startWalk(k==='walk'?'walk':'van');return}
+      if(fq){logged(add(k,fq,''));return}
+      if(PET&&k==='c_chicken'){const q=chickenQty(30);if(q!==null)logged(add(k,q,''));return}
+      if(k==='walk'||(PET&&k==='c_work')){startWalk(k==='walk'?'walk':'van');return}
       if(k==='vet'){if(vetState){toast('Vet visit already in progress')}else{startVet()}return}
       if(k==='urine'){openUrineSheet();return}
       if(k==='insulin'&&!insulinGuardOk())return;
@@ -2288,6 +2337,9 @@ function typeKeyFromSheetType(str){
 function extractQty(raw,unit){
   if(raw===''||raw==null)return{qty:'',extra:''};
   const s=String(raw).trim();
+  // "6 HR 15min", "1 HR": minutes items are typed in hours on the sheet too
+  const h=unit==='min'&&s.match(/^(\d+(?:\.\d+)?)\s*(?:hrs?|hours?)\b\s*(?:(\d+(?:\.\d+)?)\s*(?:m|mins?|minutes?)?)?$/i);
+  if(h)return{qty:Math.round(+h[1]*60+(+h[2]||0)),extra:''};
   const m=s.match(/^(-?\d+(?:\.\d+)?)(?:\s*(.*))?$/);
   if(!m)return{qty:'',extra:s};
   let extra=(m[2]||'').trim();
@@ -2296,6 +2348,8 @@ function extractQty(raw,unit){
 }
 function formatQtySheet(type,qty){
   if(qty===''||qty==null)return'';
+  if(PET&&type==='c_work'&&qty>=60)return`${Math.floor(qty/60)} HR${qty%60?` ${qty%60}min`:''}`; // how his sheet writes a long van trip
+  if(PET&&type==='c_chicken')return`${qty}g`;
   const u=T[type]?T[type].u:'';
   if(u==='units')return`${qty} Units`;
   if(u==='min')return`${qty} min`;
@@ -2398,7 +2452,8 @@ async function syncOnce(){
     let pulled=0;
     syncPull(sheetParsed,localKeys,cfg.tomb).forEach(sp=>{
       if(sp.typeKey){
-        const{qty,extra}=extractQty(sp.qty,T[sp.typeKey].u);
+        const tq=textQty(sp.typeKey)&&['💦','💩'].includes(String(sp.qty).trim()); // their QTY is the emoji itself (an accident's "1" still pulls as a number)
+        const{qty,extra}=tq?{qty:String(sp.qty).trim(),extra:''}:extractQty(sp.qty,T[sp.typeKey].u);
         const note=extra?(sp.notes?`${sp.notes} — ${extra}`:extra):(sp.notes||'');
         entries.push({id:uid(),date:sp.dateIso,time:sp.time24,type:sp.typeKey,qty,note});
       }else{
@@ -2509,6 +2564,7 @@ function saveEntry(){
     date:document.getElementById('fDate').value,time:document.getElementById('fTime').value,
     note:document.getElementById('fNote').value.trim()};
   if(!o.date||!o.time){toast('Add a date and time');return}
+  if(textQty(o.type)&&o.qty==='')o.qty=((editId&&entries.find(x=>x.id===editId))||{}).qty||(o.type==='c_toilet'?'💦':''); // the number box can't hold an emoji
   if(o.type==='insulin'&&!editId&&!insulinGuardOk())return;
   if(sheetPhotos.length)o.photos=sheetPhotos.map(ph=>({id:ph.id,cap:(ph.cap||'').trim()}));
   if(editId){
@@ -2841,7 +2897,7 @@ function tick(){
     document.documentElement.setAttribute('data-pet',PET);document.title='Reggie — Care Log';
     document.getElementById('hname').textContent='Reggie';document.getElementById('btnPet').title='Switch to Zuse';document.getElementById('btnPet').firstChild.nodeValue='🐶';
     // Zuse's medicines stay out of Reggie's pickers; a sheet row naming one still pulls in as itself
-    ['insulin','samylin','pred','para','synulox','cerenia','chicken','carrot','treat','glucose','urine','food','dose','syringe'].forEach(k=>{if(T[k])T[k].h=1});
+    ['insulin','samylin','pred','para','synulox','cerenia','chicken','carrot','treat','glucose','urine','food','dose','syringe','weewee','poop','bath','sick'].forEach(k=>{if(T[k])T[k].h=1});
     // In the Android app, the page left in memory must be Zuse's: the app refreshes his insulin reminders from it.
     // Not at once on hide, so picking a photo or sharing doesn't throw Reggie's page away; and not while a walk or van
     // trip is running here (checked when the time is up, so one the service ended meanwhile doesn't hold it for good).
@@ -2850,7 +2906,7 @@ function tick(){
   }else document.getElementById('btnPet').title='Switch to Reggie';
   if(!cfg.theme){cfg.theme=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';saveCfg();}
   applyTheme();renderWakeBtn();if(cfg.wakeOn)acquireWake();
-  tileGrid(document.getElementById('quick'),PET?REGGIE_QUICK.filter(k=>T[k]&&!T[k].h):QUICK);
+  tileGrid(document.getElementById('quick'),PET?REGGIE_QUICK.filter(s=>T[s[0]]&&!T[s[0]].h):QUICK);
   renderAllTypes();
   renderAll();renderWalkBar();renderVetBar();takeNative();if(walkState)armWalkAutoEnd();
   if(vetState){openVetSheet();toast('Vet visit resumed');}

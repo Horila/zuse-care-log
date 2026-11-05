@@ -62,7 +62,7 @@ const code = [
   grabConst('LOGGABLE'), grab('ts'), grab('isoFromDmy'), grab('to24h'), grab('typeKeyFromSheetType'),
   grab('keyOf'), grab('tombKey'), grab('syncPull'), grab('syncPush'), grab('applyTombs'),
   grab('routineWin'), grab('currentRoutine'), grab('routineDone'),
-  grab('dmyFromIso'), grab('fmt12'), grab('formatQtySheet'), grab('tripleOf'), grabConst('rowOf'),
+  grab('dmyFromIso'), grab('fmt12'), grab('extractQty'), grab('formatQtySheet'), grab('tripleOf'), grabConst('rowOf'),
   grab('sheetNote'), grab('carerOf'),
   grab('fixQueue'), grab('queueUpd'), grab('forget'), grab('revive'),
   grabConst('COLOURS'), grab('cleanType'), grab('customKey'), grab('nameClash'), grab('mergeCustomTypes'), grab('adoptSrcType'),
@@ -76,7 +76,7 @@ const api = new Function('T', 'esc', 'TYPE_ALIASES',
   '\nreturn {shouldAutoEnd,haversine,trackKm,usedSince,rateOver,dailyUse,stockLeft,stockDetail,' +
   'trackedStock,stockSame,mergeStockRow,lowStock,stockLabel,series,vetSummary,syncErr,isoBack,' +
   'syncPull,syncPush,applyTombs,currentRoutine,routineDone,forget,revive,queueUpd,sheetNote,carerOf,typeKeyFromSheetType,' +
-  'LOGGABLE,keyOf,cleanType,customKey,nameClash,mergeCustomTypes,adoptSrcType,notifPlan,' +
+  'extractQty,LOGGABLE,keyOf,cleanType,customKey,nameClash,mergeCustomTypes,adoptSrcType,notifPlan,' +
   'setWin:w=>{stockWin=w},setState:(e,c)=>{entries=e;cfg=c},getState:()=>({entries,cfg})};')(T, esc, TYPE_ALIASES);
 
 const DAY = 864e5;
@@ -98,6 +98,16 @@ ok(!api.shouldAutoEnd(0, 5, 299999), 'one ms short of grace keeps walking');
 ok(api.shouldAutoEnd(0, 5, 300000), 'grace opens at exactly 5 min');
 ok(api.shouldAutoEnd(22, 20, 600e3), '22m with a 20m fix is the ceiling');
 ok(!api.shouldAutoEnd(23, 20, 600e3), '23m with a 20m fix is out');
+
+/* ---- sheet quantities: hours for minutes items, and the older formats unchanged ---- */
+{
+  const q = (r, u) => JSON.stringify(api.extractQty(r, u));
+  eq(q('6 HR 15min', 'min'), '{"qty":375,"extra":""}', '"6 HR 15min" is 375 minutes');
+  eq(q('1 HR', 'min'), '{"qty":60,"extra":""}', '"1 HR" is 60 minutes');
+  eq(q('15 min', 'min'), '{"qty":15,"extra":""}', 'plain minutes are unchanged');
+  eq(q('8 Units', 'units'), '{"qty":8,"extra":""}', 'a unit restatement is dropped as before');
+  eq(q('1 hr', 'tablets'), '{"qty":1,"extra":"hr"}', 'hours only mean something for a minutes item');
+}
 
 /* ---- walk route distance ---- */
 eq(api.trackKm([]), 0, 'an empty route has no distance');

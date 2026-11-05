@@ -12,7 +12,7 @@ and the tests use only Node's stdlib `assert`.
 ## Commands
 
 ```
-node test-logic.js    # pure logic lifted out of zuse-care-log.html (239 checks)
+node test-logic.js    # pure logic lifted out of zuse-care-log.html (244 checks)
 node test-sync.js     # the Apps Script backend under stubbed Google services (324 checks)
 ```
 
@@ -306,25 +306,42 @@ header switches). `const PET` is `'reggie'` there and `''` for Zuse.
   DB `zuse-audio-reggie`. Zuse's keys and DB are untouched. Keep the DBs apart:
   `sweepMedia` deletes every blob the current log doesn't reference.
 - First open: no seed. `carer`/`theme`/home location are copied from Zuse's cfg.
-  Six custom items spelled as in Reggie's sheet (Wet + Dry Food, Wet Food,
-  Treats, Dental Stick, Medicine all `stk:1`, plus Van Trip `c_van_trip`, unit
-  min). Zuse's medicines, Canned Food, Treat and the stock-only Syringes get
-  `h:1`, and the stock picker lists only Reggie's own `stk` items. Feeding
-  routine: am Wet + Dry Food, Dental Stick, Treats; pm Wet + Dry Food, Treats,
-  at 11:30/23:30, reminders 11:25/23:25 (Zuse's are 11:20/23:20, so two alarms
-  never share a minute), `notifOn` and `notifStock` on, `notifMiss` off.
+  His items live in ONE object, `REGGIE_ITEMS` (name, icon, colour, unit,
+  default amount, `stk`), and the names are exactly his sheet's TYPE spellings
+  (Food, Wet + Dry Food, Chicken 🍗, Medicine, Toilet 🚻, Accident, Work 🚚,
+  Play time 🥎, Sick 🤮, ...), so rows pull in as the item and push back
+  unchanged; change an icon there. `reggieUpgrade()` fills a first open and is
+  the one-time upgrade for an older phone (`cfg.rv!==2`): it adds missing items,
+  refreshes the icon (never the name) of the ones he has, hides the old
+  `c_van_trip`, and swaps the routines only if they are still an earlier default.
+  Zuse's medicines, Canned Food, Treat, Poop, Wee Wee, Bath, Sick and the
+  stock-only Syringes get `h:1` (Walk, Weight and Wormer / Flea stay), and the
+  stock picker lists only his `stk` items. Routine: am Food, Chicken (asks
+  grams), Medicine 2; pm Food; at 11:30/23:30, reminders 11:25/23:25 (Zuse's are
+  11:20/23:20, so two alarms never share a minute), `notifOn` and `notifStock`
+  on, `notifMiss` off. Quick tiles are `REGGIE_QUICK`, a list of
+  `[key, fixed qty, label, icon]`; `tileGrid` also takes those, and swaps
+  Toilet and Accident for `REGGIE_PAIRS` (Poo 💩 / Wee 💧, Accident 💩 / 💦).
+- Text quantities: Toilet and Accident keep `'💦'`/`'💩'` as the qty (`textQty()`),
+  pushed and pulled as the raw sheet QTY (an old Accident "1" still pulls as a
+  number). The sheet key is date|time|type, so `add()` moves a second entry of
+  the same type one minute on if the minute is taken. The widget's Wee Wee and
+  Poop taps become Toilet 💦/💩 in `takeNative`. Minutes items pull "6 HR 15min"
+  and "1 HR" as minutes (`extractQty`); Work pushes 60+ minutes as "X HR Ymin"
+  and Chicken as "<n>g" (`formatQtySheet`, Reggie only).
 - Same code, other words: `renderRing()` keeps the hero for Reggie, with `KEY` =
   his meal types (Zuse: insulin) restarting the hourglass and the wording
   ("Last meal", "until next meal", "Next meal ... N of 2 meals today"). The
-  vet summary (`vetSummary`) lists meals, treats, dental sticks, walks, van
-  trips, weight, vet visits and medicine for Reggie. `notifPlan` prefixes
+  vet summary (`vetSummary`) lists meals, chicken, medicine, toilet counts,
+  accidents, walks, van trips, play/training, weight and vet visits for Reggie;
+  At a glance shows meals, toilet (💦/💩), walked and weight. `notifPlan` prefixes
   Reggie's titles with "Reggie:" and never makes missed-shot items for him
   (`||PET`). Setup rows that are insulin's (dose, hours between shots, missed-shot
   alert, vet-sheet glucose, the script-email note) carry class `zonly`, hidden
   by `html[data-pet] .zonly`. `test-logic.js` declares `const PET=''`.
 - Van trip = a walk with `walkState.kind==='van'`: same stopwatch, bar
-  ("🚐 Van trip"), map and auto-end; started from the Van Trip tile (Reggie only),
-  logged as `c_van_trip`. `startWalk` JSON carries `pet` and `kind`; a natively
+  ("🚐 Van trip"), map and auto-end; started from the Van trip tile (Reggie only),
+  logged as `c_work` ("Work 🚚" on his sheet; the older `c_van_trip` stays, hidden). `startWalk` JSON carries `pet` and `kind`; a natively
   ended walk's queue entry carries them back (`t` stays `'walk'`). Only one walk
   or van trip runs at a time across both dogs: `startWalk` reads the other dog's
   raw `zuse_walk`/`zuse_walk@reggie` key and refuses with a toast.
@@ -362,7 +379,7 @@ recordings from the removed vet-audio feature stay readable.
 
 ## Layout of zuse-care-log.html
 
-One ~2889-line file: styles 13–240, markup 242–666, script 667–2887.
+One ~2945-line file: styles 13–240, markup 242–666, script 667–2943.
 
 ## Other files at the root
 
