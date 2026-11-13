@@ -25,8 +25,11 @@
  *    touches the calendar, so syncing cannot break if that permission is
  *    missing or later withdrawn.
  *
+ * 7. Run "installReminders" once as well. It moves the missed-shot check to
+ *    every 30 minutes and removes the old monthly report's trigger.
+ *
  * ALERT_EMAIL must be filled in for any of the email or calendar reminders to
- * happen -- the monthly report button included. It sits BELOW the cut line, so
+ * happen. It sits BELOW the cut line, so
  * pasting this over the bottom of your script wipes it back to blank. Copy your
  * address out first, and put it back into the ALERT_EMAIL line of this block
  * after pasting, before you save and redeploy.
@@ -51,12 +54,6 @@ function doPost(e) {
     } finally {
       lock.releaseLock();
     }
-  }
-  // The app's "email the report now" button.
-  if (body.action === 'report') {
-    if (!ALERT_EMAIL) return jsonOut({ error: 'ALERT_EMAIL is blank in the script' });
-    sendMonthlyReport();
-    return jsonOut({ ok: true, to: ALERT_EMAIL });
   }
   // Stock levels are kept in the app; this mirrors them onto a sheet tab so the
   // daily checker can see them, and so they are visible to whoever opens the
@@ -330,7 +327,7 @@ function jsonOut(obj) {
  *    Setup screen with every sync, and those win once it has synced.
  * 3. In the Apps Script editor, pick "installReminders" from the function
  *    dropdown and click Run. Authorize when asked.
- * 4. That's it — it now checks every 15 minutes and emails you once per
+ * 4. That's it — it now checks every 30 minutes and emails you once per
  *    missed slot. Run "installReminders" again any time you change the times;
  *    it clears the old trigger first, so it never doubles up.
  *
@@ -344,14 +341,18 @@ const GRACE_MIN = 30;              // how late a shot can be before you're told
 const ALERT_WINDOW_H = 5;          // stop nagging about a slot this long after it
 const LOOKBACK_H = 2;              // a shot this far before the slot still counts
 
-/** Installs (or reinstalls) the 15-minute checker. Run this by hand once. */
+/** Installs (or reinstalls) the 30-minute checker. Run this by hand once.
+ *  Every 30 minutes, not 15: nothing is reported before GRACE_MIN (30) anyway.
+ *  It also removes the trigger of the monthly report, which no longer exists;
+ *  left in place, that trigger would fail on the 1st of every month. */
 function installReminders() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'checkShotDue') ScriptApp.deleteTrigger(t);
+    const f = t.getHandlerFunction();
+    if (f === 'checkShotDue' || f === 'sendMonthlyReport') ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('checkShotDue').timeBased().everyMinutes(15).create();
+  ScriptApp.newTrigger('checkShotDue').timeBased().everyMinutes(30).create();
   const who = ALERT_EMAIL || '(nobody — ALERT_EMAIL is blank)';
-  Logger.log('Reminder installed. Checking every 15 min, emailing ' + who);
+  Logger.log('Reminder installed. Checking every 30 min, emailing ' + who);
 }
 
 /** Runs on the trigger. Emails once per missed slot, never twice. */
@@ -445,141 +446,14 @@ function cleanupAlertKeys_(props) {
 }
 
 /* ==========================================================================
- * MONTHLY REPORT (written by Gemini, emailed to you)
+ * SHEET TYPE NAMES
  *
- * On the 1st of each month this reads the last 30 days off the sheet, plus the
- * 30 days before that for comparison, and emails you a few paragraphs of plain
- * English: what moved, what didn't, what's worth mentioning to the vet.
- *
- * Only aggregates are sent to the model — totals, averages, weigh-ins, glucose
- * readings and the incident list. Never the whole sheet. It is cheaper, and
- * there is far less for the model to get wrong.
- *
- * The API key is NOT in this file and must never be. It lives in the script's
- * own properties, behind your Google account.
- *
- * SETUP (one-time):
- * 1. Get a free key at https://aistudio.google.com/apikey
- * 2. Apps Script editor -> Project Settings (gear) -> Script Properties ->
- *    Add script property.  Property: GEMINI_API_KEY   Value: <your key>
- * 3. Make sure ALERT_EMAIL above is set — the report goes to the same address.
- * 4. Run "runMonthlyReportNow" once to check it works. You should get an email
- *    within a minute or so.
- * 5. Run "installMonthlyReport" to put it on the monthly schedule.
- *
- * If the key is missing or Google's API is down, you still get the email — it
- * just carries the raw numbers and says what went wrong. A report that fails
- * quietly is worse than no report.
+ * The sheet's TYPE column has been used as free text for years, so the same
+ * thing appears under several spellings, with and without an emoji. The stock
+ * forecast normalises a row's type before counting it. Keep this table in step
+ * with TYPE_ALIASES in the app; test-logic.js fails when the two drift.
  * ========================================================================== */
 
-const GEMINI_MODEL = 'gemini-3.6-flash';
-const REPORT_DAYS = 30;      // length of each comparison window
-const REPORT_HOUR = 9;       // hour of the 1st to send on (24h, script timezone)
-
-/** Puts the report on the 1st of every month. Run this by hand once. */
-function installMonthlyReport() {
-  ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'sendMonthlyReport') ScriptApp.deleteTrigger(t);
-  });
-  ScriptApp.newTrigger('sendMonthlyReport')
-    .timeBased().onMonthDay(1).atHour(REPORT_HOUR).create();
-  Logger.log('Monthly report installed: 1st of each month, around ' +
-             REPORT_HOUR + ':00, to ' + (ALERT_EMAIL || '(nobody — ALERT_EMAIL is blank)'));
-}
-
-/** Same thing, on demand. Use this to test the setup. */
-function runMonthlyReportNow() {
-  sendMonthlyReport();
-  Logger.log('Report sent to ' + ALERT_EMAIL);
-}
-
-function sendMonthlyReport() {
-  if (!ALERT_EMAIL) {
-    Logger.log('ALERT_EMAIL is blank — nothing sent.');
-    return;
-  }
-  const stats = buildReportStats_(REPORT_DAYS);
-  let body, note = '';
-  try {
-    const prose = askGemini_(reportPrompt_(stats));
-    if (!prose) {
-      note = 'No GEMINI_API_KEY is set in Script Properties, so this month has ' +
-             'the numbers but no write-up.\n\n';
-      body = note + stats.text;
-    } else {
-      body = prose + '\n\n' +
-             '-------------------------------------------\n' +
-             'The figures this was written from:\n\n' + stats.text;
-    }
-  } catch (err) {
-    // Never swallow it — send the numbers and say what broke.
-    body = 'The write-up failed this month (' + err + '), so here are the raw ' +
-           'figures instead.\n\n' + stats.text;
-  }
-  MailApp.sendEmail(ALERT_EMAIL, 'Zuse: monthly report — ' + stats.label, body);
-}
-
-/* ---------------- the numbers ---------------- */
-
-/** Two windows: the last `days`, and the `days` before that. */
-function buildReportStats_(days) {
-  const rows = readRows();
-  const now = new Date();
-  const startA = new Date(now.getTime() - days * 864e5);
-  const startB = new Date(now.getTime() - 2 * days * 864e5);
-  const A = bucket_(rows, startA, now);
-  const B = bucket_(rows, startB, startA);
-
-  const L = [];
-  L.push('THIS PERIOD  (A): ' + fmtDay_(startA) + ' to ' + fmtDay_(now) + ', ' + days + ' days');
-  L.push('PREVIOUS     (B): ' + fmtDay_(startB) + ' to ' + fmtDay_(startA) + ', ' + days + ' days');
-  L.push('');
-  L.push('TOTALS BY TYPE  (A now, B before)');
-
-  const names = {};
-  [A, B].forEach(function (b) {
-    Object.keys(b.totals).forEach(function (k) { names[k] = b.totals[k].name; });
-  });
-  Object.keys(names).sort().forEach(function (k) {
-    const a = A.totals[k] || { qty: 0, count: 0 };
-    const b = B.totals[k] || { qty: 0, count: 0 };
-    L.push('  ' + names[k] + ': ' +
-      round_(a.qty) + ' over ' + a.count + ' entries (' + perDay_(a.qty, days) + '/day)' +
-      '   was  ' +
-      round_(b.qty) + ' over ' + b.count + ' entries (' + perDay_(b.qty, days) + '/day)');
-  });
-
-  L.push('');
-  L.push('FREE-TEXT ROWS, no matching type (A): ' + A.freeText.length);
-  A.freeText.forEach(function (t) { L.push('  ' + t); });
-
-  L.push('');
-  L.push('WEIGHT (A): ' + (A.weights.length ? A.weights.join(', ') : 'no weigh-ins'));
-  L.push('WEIGHT (B): ' + (B.weights.length ? B.weights.join(', ') : 'no weigh-ins'));
-  L.push('GLUCOSE (A): ' + (A.glucose.length ? A.glucose.join(', ') : 'no readings'));
-  L.push('GLUCOSE (B): ' + (B.glucose.length ? B.glucose.join(', ') : 'no readings'));
-
-  L.push('');
-  L.push('INCIDENTS — anything reading as sick, diarrhea, vomiting, runny/soft poop or a pee accident');
-  L.push('  A: ' + A.incidents.length + (A.incidents.length ? '' : ' (none)'));
-  A.incidents.forEach(function (s) { L.push('    ' + s); });
-  L.push('  B: ' + B.incidents.length + (B.incidents.length ? '' : ' (none)'));
-  B.incidents.forEach(function (s) { L.push('    ' + s); });
-
-  if (A.urine.length) {
-    L.push('');
-    L.push('URINE TESTS (A):');
-    A.urine.forEach(function (s) { L.push('  ' + s); });
-  }
-
-  return { text: L.join('\n'), label: fmtDay_(startA) + ' to ' + fmtDay_(now) };
-}
-
-/** Everything in [from, to), keyed by lowercased sheet type. */
-/* The sheet's TYPE column has been used as free text for years, so the same
- * thing appears as "Chicken Slice" and "Chicken Slice \uD83C\uDF57", and real events hide
- * inside one-off phrases like "diarrhea still". Everything below normalises
- * before counting; keep this table in step with TYPE_ALIASES in the app. */
 const KNOWN_TYPES = {
   'canned food': 'Canned Food', 'dry food': 'Dry Food',
   'insulin': 'Insulin', 'samylin': 'Samylin',
@@ -595,81 +469,14 @@ const KNOWN_TYPES = {
   'fleeing': 'Wormer / Flea', 'fleaing': 'Wormer / Flea', 'worming': 'Wormer / Flea',
   'dose change': 'Dose change',
   'poop': 'Poop', 'wee wee': 'Wee Wee', 'weewee': 'Wee Wee',
-  'pee accident': 'Pee accident', 'was sick': 'Was sick', 'sick': 'Was sick', 'diarrhea': 'Diarrhea'
+  'pee accident': 'Pee accident', 'was sick': 'Was sick', 'sick': 'Was sick', 'diarrhea': 'Diarrhea',
+  'low sugar': 'Low sugar'
 };
-/* Reported on their own further down, so they must not also appear as a total. */
-const NOT_A_TOTAL = ['Weight', 'Glucose', 'Urine test', 'Vets Visit', 'Note', 'Dose change'];
-/* Substring match. The real rows read "diarrhea still", "wee we/runny poop" and
- * so on; exact matching undercounted these by more than half. */
-const INCIDENT_RE = /sick|diarrh|runny poop|soft poop|pee accident|vomit/i;
 
 /** Strip emoji and stray punctuation, collapse spaces, then look it up. */
 function canonType_(raw) {
   const clean = String(raw).replace(/[^\x20-\x7E]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
   return KNOWN_TYPES[clean] || null;
-}
-
-/** Identity of an incident, independent of which row it arrived on: the day,
- *  plus the words, with the type dropped when it is only the generic "Note". */
-function incidentKey_(day, raw, notes, name) {
-  const body = ((name === 'Note' ? '' : raw) + ' ' + notes)
-    .replace(/[^a-zA-Z0-9 ]/g, ' ')
-    .replace(/\s+/g, ' ').trim().toLowerCase();
-  return day + '|' + body;
-}
-
-function bucket_(rows, from, to) {
-  const out = { totals: {}, weights: [], glucose: [], incidents: [], urine: [], freeText: [] };
-  const seenWeight = {};
-  const incidentSeen = {};
-  rows.forEach(function (r) {
-    const when = parseRowDate_(r.date, r.time);
-    if (!when || when < from || when >= to) return;
-    const raw = String(r.type).trim();
-    const name = canonType_(raw);
-    const n = numFrom_(r.qty);
-    const day = fmtDay_(when);
-
-    // An unrecognised TYPE is a hand-typed note, not a category. Treating it as
-    // one produced forty rows of noise and split the totals that mattered.
-    if (!name) {
-      out.freeText.push(day + ' — ' + raw + (r.notes ? ': ' + r.notes : ''));
-    } else if (NOT_A_TOTAL.indexOf(name) === -1) {
-      const t = out.totals[name] || (out.totals[name] = { name: name, qty: 0, count: 0 });
-      t.qty += n;
-      t.count++;
-    }
-
-    if (name === 'Weight') {
-      const k = day + '|' + n;                    // the sheet carries duplicate weigh-ins
-      if (!seenWeight[k]) { seenWeight[k] = 1; out.weights.push(n + ' kg on ' + day); }
-    } else if (name === 'Glucose') {
-      out.glucose.push(n + ' on ' + day);
-    } else if (name === 'Urine test') {
-      out.urine.push(day + ' — ' + (r.notes || 'no values recorded'));
-    }
-
-    // Tested against the raw text AND the notes, so hand-typed events count too.
-    const notes = r.notes ? String(r.notes) : '';
-    if (INCIDENT_RE.test(raw) || INCIDENT_RE.test(notes)) {
-      // Name the event, not the row it arrived on. A Canned Food row whose note
-      // says "soft poop" is a soft poop, not a feeding.
-      const label = INCIDENT_RE.test(raw)
-        ? raw + (notes ? ': ' + notes : '')
-        : (notes || raw);
-      // Unrecognised sheet types get pulled into the app as notes and pushed
-      // back as type "Note", so the same event is in the sheet twice. Collapse
-      // them, keeping whichever copy carries the more specific type.
-      const key = incidentKey_(day, raw, notes, name);
-      const better = (name !== 'Note' && name !== null) || !incidentSeen[key];
-      if (!incidentSeen[key] || better) incidentSeen[key] = day + ' — ' + label;
-    }
-  });
-  Object.keys(incidentSeen).forEach(function (k) { out.incidents.push(incidentSeen[k]); });
-  // Both lists lead with the date, so a plain sort puts them in date order.
-  out.incidents.sort();
-  out.freeText.sort();
-  return out;
 }
 
 /** Sheet quantities mix plain numbers with number+unit text ("8 Units"). */
@@ -679,98 +486,8 @@ function numFrom_(v) {
   return m ? Number(m[1]) : 0;
 }
 function round_(n) { return Math.round(n * 100) / 100; }
-function perDay_(n, days) { return (n / days).toFixed(2); }
 function fmtDay_(d) {
   return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
-}
-
-/* ---------------- the model ---------------- */
-
-function reportPrompt_(stats) {
-  return [
-    'You are writing a short monthly update for the owner of Zuse, a diabetic dog,',
-    'from his care log. The owner will read it, and may forward it to their vet.',
-    '',
-    'Write 3 to 5 short paragraphs of plain English. Rules:',
-    '- Quote the actual numbers. "insulin averaged 8.4 units a day, up from 7.9" —',
-    '  never "insulin usage increased".',
-    '- Compare period A against period B and say which way things moved.',
-    '- If something did not change, say so plainly. Do not manufacture a trend',
-    '  out of noise, and do not pad the report to fill space.',
-    '- Call out anything a vet would want flagged: weight moving, glucose readings,',
-    '  a cluster of sick or diarrhea entries, walks or food dropping off.',
-    '- Missing data is a fact worth stating (e.g. no weigh-in this period), not a',
-    '  gap to guess across.',
-    '- The free-text rows were typed by hand rather than picked from a list. Read',
-    '  them for anything the totals miss, but do not count them twice: the ones',
-    '  that matter already appear in the incident list.',
-    '',
-    'Hard limits:',
-    '- Do NOT suggest, adjust, or comment on insulin doses or any medication dose.',
-    '- Do NOT diagnose, and do NOT give clinical advice or reassurance.',
-    '- You are describing what the log says. Anything beyond that is the vet\'s job.',
-    '  If the numbers look concerning, the only recommendation you may make is to',
-    '  raise it with the vet.',
-    '',
-    'No headings, no bullet lists, no preamble like "Here is your report".',
-    'Start with the sentence that matters most.',
-    '',
-    'THE LOG:',
-    '',
-    stats.text
-  ].join('\n');
-}
-
-/* A busy model answers 503, and this job only runs once a month — one attempt
- * is not enough. Back off and try again; 5 + 10 + 20 seconds is nothing against
- * the six-minute script limit. */
-const RETRY_CODES = [429, 500, 502, 503, 504];
-const RETRIES = 4;
-
-function askGemini_(prompt) {
-  const key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
-  if (!key) return null;   // caller turns this into the numbers-only email
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' +
-              GEMINI_MODEL + ':generateContent?key=' + encodeURIComponent(key);
-  const params = {
-    method: 'post',
-    contentType: 'application/json',
-    payload: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      // Deliberately no output cap: a busy month is a long write-up, and a
-      // limit here truncates it mid-sentence rather than failing loudly.
-      generationConfig: { temperature: 0.3 }
-    }),
-    muteHttpExceptions: true
-  };
-
-  let last = '';
-  for (let attempt = 0; attempt < RETRIES; attempt++) {
-    const res = UrlFetchApp.fetch(url, params);
-    const code = res.getResponseCode();
-    const text = res.getContentText();
-
-    if (code === 200) {
-      const data = JSON.parse(text);
-      const cand = data && data.candidates && data.candidates[0];
-      const parts = cand && cand.content && cand.content.parts;
-      // With no cap, an empty answer means the model spent its whole budget
-      // thinking. Name the reason so the failure email says why.
-      if (!parts || !parts.length) {
-        throw new Error('Gemini returned no text (finishReason ' +
-          ((cand && cand.finishReason) || 'none') + ') — ' + text.slice(0, 300));
-      }
-      const out = parts.map(function (p) { return p.text || ''; }).join('').trim();
-      if (!out) throw new Error('Gemini returned an empty message');
-      return out;
-    }
-
-    last = 'Gemini HTTP ' + code + ' — ' + text.slice(0, 300);
-    // A bad key or a retired model will never fix itself; don't burn four tries.
-    if (RETRY_CODES.indexOf(code) === -1) throw new Error(last);
-    if (attempt < RETRIES - 1) Utilities.sleep(Math.pow(2, attempt) * 5000);
-  }
-  throw new Error(last + '  (gave up after ' + RETRIES + ' attempts)');
 }
 
 

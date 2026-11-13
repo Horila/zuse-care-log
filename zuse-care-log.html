@@ -311,6 +311,7 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
     </div>
   </div>
 
+  <div id="healthWarn"></div>
   <div id="stockWarn"></div>
 
   <section>
@@ -333,6 +334,11 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
   <section>
     <div class="shead"><h2>At a glance</h2></div>
     <div class="cards" id="glance"></div>
+  </section>
+
+  <section id="vetSec">
+    <div class="shead"><h2>Emergency vet</h2></div>
+    <div id="vetCard"></div>
   </section>
 </div>
 
@@ -423,6 +429,18 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
     </div>
   </section>
   <section>
+    <div class="shead"><h2>Emergency vet</h2></div>
+    <div class="card">
+      <div class="two">
+        <div class="fld"><label>Vet phone (daytime)</label><input id="sVetDay" type="tel" inputmode="tel"></div>
+        <div class="fld"><label>Out-of-hours phone</label><input id="sVetNight" type="tel" inputmode="tel"></div>
+      </div>
+      <div class="fld zonly"><label>Low sugar: what to do (your vet's words)</label><textarea id="sRescue" rows="4" placeholder="Ask your vet what to do when his sugar drops, and type it here. It shows on the Low sugar card."></textarea></div>
+      <div class="fld zonly"><label>Warn when he is down this many kg (from his highest in 90 days)</label><input id="sWeightDrop" type="number" step="0.1" min="0" inputmode="decimal" placeholder="blank = no warning"></div>
+      <p class="note">The numbers show as call buttons at the bottom of Today and on the Low sugar card, and work with no signal. All of this stays on this phone: type it in on each phone.</p>
+    </div>
+  </section>
+  <section>
     <div class="shead"><h2>Home location</h2></div>
     <div class="card">
       <p class="note" id="homeStatus" style="margin-bottom:10px">Not set.</p>
@@ -479,11 +497,6 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
     <p class="note" style="margin-top:10px" id="syncStatus">Not synced yet.</p>
     <p class="note" style="margin-top:10px">Matches entries by date + time + type — anything on one side missing from the other gets copied across. See the setup guide for the Apps Script code to paste into your sheet.</p>
     <p class="note zonly" style="margin-top:10px">That same script can email you when a shot goes unlogged past its time. This app can't do it on its own — a phone stops a web app dead once the screen locks. Set <b>ALERT_EMAIL</b> in the script and run <b>installReminders</b> once.</p>
-  </section>
-  <section class="zonly">
-    <div class="shead"><h2>Monthly report</h2></div>
-    <button class="btn sec" id="reportBtn" onclick="emailReportNow()">Email the monthly report now</button>
-    <p class="note" style="margin-top:10px">Sends the same write-up the script posts on the 1st, to <b>ALERT_EMAIL</b>. It can take up to a minute — the model is asked, and retried if it is busy. If this answers &ldquo;unknown action&rdquo;, the deployed script is older than the code you pasted: Apps Script → Deploy → Manage deployments → pencil → Version: New version → Deploy. The URL stays the same.</p>
   </section>
   <section>
     <div class="shead"><h2>Your data</h2></div>
@@ -564,8 +577,8 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
     <div class="fld"><label>Urobilinogen</label><input id="uUrobilinogen"></div>
   </div>
   <div class="two">
-    <div class="fld"><label>Ketone</label><input id="uKetone"></div>
-    <div class="fld"><label>Glucose</label><input id="uGlucose"></div>
+    <div class="fld"><label>Ketone</label><input id="uKetone" placeholder="neg, +, ++"></div>
+    <div class="fld"><label>Glucose</label><input id="uGlucose" placeholder="neg, +, ++"></div>
   </div>
   <div class="two">
     <div class="fld"><label>Protein</label><input id="uProtein"></div>
@@ -580,6 +593,16 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
     <div class="fld"><label>Leukocytes</label><input id="uLeukocytes"></div>
   </div>
   <button class="btn" onclick="saveUrineEntry()">Save urine test</button>
+</div>
+
+<div class="sheet" id="hypoSheet">
+  <div class="grab"></div>
+  <h2>🆘 Low sugar</h2>
+  <p id="hypoSteps" style="white-space:pre-wrap;font-size:15px;line-height:1.5;margin:10px 0 4px"></p>
+  <div id="hypoVet"></div>
+  <h3 style="margin-top:18px">What did you see? Tap to log it</h3>
+  <div id="hypoBtns" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px"></div>
+  <button class="btn sec" style="margin-top:14px" onclick="closeSheet()">Close</button>
 </div>
 
 <div class="sheet" id="sumSheet">
@@ -597,10 +620,13 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
   <h2>App features &amp; setup</h2>
 
   <h3 style="margin-top:14px">Logging</h3>
-  <p class="note">Insulin, food, medication (Samylin, Prednisolone, Paracetamol, Synulox, Cerenia and more), walks, treats, bathroom and tummy-trouble notes, weight, glucose and urine test readings, vet visits, and free-text notes for anything else. The Today screen has one-tap quick-log buttons for the routine ones; <b>Custom entry</b> opens a full form with amount, date/time, notes and photos for everything else.</p>
+  <p class="note">Insulin, food, medication (Samylin, Prednisolone, Paracetamol, Synulox, Cerenia and more), walks, treats, bathroom and tummy-trouble notes, weight, urine tests, vet visits, low sugar, and free-text notes for anything else. The Today screen has one-tap quick-log buttons for the routine ones; <b>Custom entry</b> opens a full form with amount, date/time, notes and photos for everything else.</p>
 
   <h3>Your own items</h3>
   <p class="note">Log tab → <b>+ New item</b> adds anything else you give him (a new medication, say) with its own icon, unit, default amount and colour, and can track its stock. Setup → Your items edits them.</p>
+
+  <h3 style="color:var(--alert)">Safety</h3>
+  <p class="note"><b>Low sugar</b> (the 🆘 tile) opens a card with your vet's rescue steps and call buttons, and logs what you saw at one tap. <b>Emergency vet</b> call buttons sit at the bottom of Today; they work with no signal. After food is logged the app asks how much he ate, and the answer goes to the other phone. A dose change made on one phone is offered on the other. Sick or diarrhea twice in a day suggests a urine test, and a weight drop past your figure shows a warning. The steps, the numbers and the weight figure are yours: type them in Setup → Emergency vet. The app never suggests a dose and never stops you logging one.</p>
 
   <h3>Routines</h3>
   <p class="note">Morning and night routines (Setup → Morning/Night routine) group the things due at each shot into one checklist on the Today screen, so nothing gets missed in the moment.</p>
@@ -609,25 +635,24 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
   <p class="note">Set your home location once (Setup → Home location) and a walk auto-ends when you're back within 2m of it, after the first 5 minutes.</p>
 
   <h3>History &amp; Trends</h3>
-  <p class="note">History lists every entry, searchable and editable. Trends charts weight, glucose, insulin, walking and tummy trouble over time, since the log started.</p>
+  <p class="note">History lists every entry, searchable and editable. Trends charts weight, vet glucose readings, urine tests, insulin, walking and tummy trouble over time, since the log started.</p>
 
   <h3>Stock</h3>
   <p class="note">Track how much of an item you have in hand and since when; the app works out the daily-use rate from your own logged entries (or from the per-day figure you type in the item&rsquo;s box) and predicts a run-out date. Insulin and Syringes are linked — a syringe is counted automatically for every insulin shot, never logged by hand.</p>
 
   <h3 style="margin-top:18px;color:var(--alert)">Automatic alerts</h3>
-  <p class="note">These five all run from the Google Sheet script, on Google's own clock — not from the phone — because a phone stops running code the moment the screen locks. They only work once Google Sheet sync is set up below <i>and</i> the one-time Apps Script setup (further down) has been done.</p>
-  <p class="note"><b>1. Missed shot email</b> — if a shot isn't logged within 30 minutes of its scheduled time, one email per missed slot, checked every 15 minutes.</p>
+  <p class="note">These four all run from the Google Sheet script, on Google's own clock — not from the phone — because a phone stops running code the moment the screen locks. They only work once Google Sheet sync is set up below <i>and</i> the one-time Apps Script setup (further down) has been done.</p>
+  <p class="note"><b>1. Missed shot email</b> — if a shot isn't logged within 30 minutes of its scheduled time, one email per missed slot, checked every 30 minutes.</p>
   <p class="note"><b>2. Low stock email (to you)</b> — when an item drops under 7 days of supply (Insulin instead warns at one bottle / 400 units left, since it's ordered further ahead), plus a calendar reminder on the predicted run-out day. Once per restock.</p>
   <p class="note"><b>3. Vet reorder email</b> — Prednisolone and Syringes additionally trigger a short email straight to the vet at 10 days of supply, asking them to reorder and to call or reply when it's ready. Once per restock; cancel it from that item's card on the Stock tab if you've already reordered elsewhere.</p>
   <p class="note"><b>4. "Running out" warnings in the app</b> — the home screen and Stock tab flag an item early, before either email above fires: 15 days for Prednisolone/Syringes, 7 days for everything else (or under a bottle for Insulin).</p>
   <p class="note"><b>In the Android app</b>, the phone notifies you itself too, no sheet needed: feeding &amp; meds reminders, a shot not logged 30 minutes after its time, and stock about to run low. Set them in Setup → Phone notifications.</p>
-  <p class="note"><b>5. Monthly report</b> — on the 1st of each month, an AI-written summary of the last 30 days (medication totals, weight/glucose trends, incidents), compared against the 30 days before, emailed to you. Missing a Gemini API key just means plainer numbers, not no report.</p>
 
   <h3 style="margin-top:18px">Data &amp; privacy</h3>
   <p class="note">Everything lives on this phone unless you turn on Google Sheet sync. Nothing is uploaded otherwise. Back up from Setup → Your data now and then.</p>
 
   <h3>One-time Apps Script setup</h3>
-  <p class="note">The alerts above need this done once, from the Apps Script editor (Extensions → Apps Script on your Google Sheet), after pasting the sync code in: fill in <b>ALERT_EMAIL</b> at the top, then run <b>installReminders</b>, <b>installStockAlerts</b> and <b>installMonthlyReport</b> once each from the function dropdown — <b>installStockAlerts</b> is the one that asks for calendar permission. A free Gemini key (Project Settings → Script Properties → <b>GEMINI_API_KEY</b>) gives the monthly report its write-up. Any later change to the script needs a redeploy — Deploy → Manage deployments → pencil → Version: New version — or new buttons answer "unknown action".</p>
+  <p class="note">The alerts above need this done once, from the Apps Script editor (Extensions → Apps Script on your Google Sheet), after pasting the sync code in: fill in <b>ALERT_EMAIL</b> at the top, then run <b>installReminders</b> and <b>installStockAlerts</b> once each from the function dropdown — <b>installStockAlerts</b> is the one that asks for calendar permission. Any later change to the script needs a redeploy — Deploy → Manage deployments → pencil → Version: New version — or new buttons answer "unknown action".</p>
 
   <button class="btn sec" style="margin-top:14px" onclick="closeSheet()">Close</button>
 </div>
@@ -786,12 +811,14 @@ const T={
   // of every list you can log from.
   syringe:{n:'Syringes',i:'💉',c:'--insulin',u:'syringes',d:1,s:1},
   // Logged by Setup when the insulin dose field changes; qty is the new dose.
-  dose:{n:'Dose change',i:'📈',c:'--insulin',u:'units',d:8}
+  dose:{n:'Dose change',i:'📈',c:'--insulin',u:'units',d:8},
+  // Low blood sugar. Logged from the rescue card (openHypo); the note holds what was seen.
+  hypo:{n:'Low sugar',i:'🆘',c:'--alert',u:'',d:''}
 };
 // h:1 — a custom item hidden from the pickers; its old entries still render.
 const LOGGABLE=()=>Object.keys(T).filter(k=>!T[k].s&&!T[k].h);
-const QUICK=['insulin','food','walk','chicken','glucose','pred','para','samylin','poop','weewee'];
-const FLAGS=['sick','diarrhea','pee','vet'];
+const QUICK=['insulin','food','walk','chicken','pred','para','samylin','poop','weewee','urine','sick','hypo'];
+const FLAGS=['sick','diarrhea','pee','vet','hypo'];
 
 /* ---------------- defaults ---------------- */
 const DEF={
@@ -799,7 +826,8 @@ const DEF={
   am:[['food',2],['insulin',8],['samylin',2],['synulox',1],['para',.5],['chicken',30]],
   pm:[['food',2],['insulin',8],['synulox',1],['pred',.5],['para',.5],['chicken',25]],
   syncUrl:'', syncKey:'', lastSync:'', theme:'', wakeOn:false, customTypes:{},
-  feedAm:'11:20', feedPm:'23:20', notifOn:true, notifMiss:true, notifStock:true
+  feedAm:'11:20', feedPm:'23:20', notifOn:true, notifMiss:true, notifStock:true,
+  vetDay:'', vetNight:'', rescue:'', weightDrop:'' // typed into Setup on each phone, never shipped in the code
 };
 /* map a sheet TYPE string (current or legacy spelling) to our internal key */
 const TYPE_ALIASES={
@@ -810,7 +838,7 @@ const TYPE_ALIASES={
   'weight':'weight','glucose':'glucose','urine test':'urine','vets visit':'vet',
   'wormer / flea':'wormer','fleeing':'wormer','fleaing':'wormer','worming':'wormer',
   'poop':'poop','pee accident':'pee','was sick':'sick','sick':'sick','diarrhea':'diarrhea',
-  'bath':'bath','note':'note','dose change':'dose'
+  'bath':'bath','note':'note','dose change':'dose','low sugar':'hypo'
 };
 
 /* ---------------- custom item types ---------------- */
@@ -1629,7 +1657,8 @@ function renderGlance(){
   const wk=sum('walk');
   const lastW=[...entries].filter(e=>e.type==='weight').sort((a,b)=>a.date<b.date?1:-1)[0];
   const lastG=[...entries].filter(e=>e.type==='glucose').sort((a,b)=>a.date<b.date?1:-1)[0];
-  const g=document.getElementById('glance');
+  const g=document.getElementById('glance'),wt=weightTrend();
+  const wch=wt&&wt.change!=null?` · ${wt.change>0?'+':''}${wt.change} kg since ${dayLabel(wt.first.d)}`:'';
   const cnt=t=>list.filter(e=>e.type===t).length;
   g.innerHTML=(PET?`
   <div class="card"><div class="k">Meals today</div><div class="v" style="color:var(--food)">${cnt('c_food')+cnt('c_wet_dry_food')+cnt('c_wet_food')}</div><div class="d">food, or wet + dry</div></div>
@@ -1637,7 +1666,7 @@ function renderGlance(){
   <div class="card"><div class="k">Insulin today</div><div class="v" style="color:var(--insulin)">${sum('insulin')||0}<small> units</small></div><div class="d">${ins.length} of 2 shots</div></div>
   <div class="card"><div class="k">Food today</div><div class="v" style="color:var(--food)">${sum('food')||0}<small> cans</small></div><div class="d">${sum('chicken')?sum('chicken')+'g chicken':'no chicken yet'}</div></div>`)+`
   <div class="card"><div class="k">Walked</div><div class="v" style="color:var(--walk)">${wk}<small> min</small></div><div class="d">${list.filter(e=>e.type==='walk').length} walks</div></div>
-  <div class="card"><div class="k">Last weigh-in</div><div class="v" style="color:var(--vet)">${lastW?lastW.qty:'—'}<small> kg</small></div><div class="d">${lastW?dayLabel(lastW.date):'not recorded'}${lastG?' · glucose '+lastG.qty:''}</div></div>`;
+  <div class="card"><div class="k">Last weigh-in</div><div class="v" style="color:var(--vet)">${lastW?lastW.qty:'—'}<small> kg</small></div><div class="d">${lastW?dayLabel(lastW.date):'not recorded'}${wch}${lastG?' · glucose '+lastG.qty:''}</div></div>`;
 }
 
 /* Two carers dosing the same dog is the failure this catches, not forgetting.
@@ -1650,11 +1679,126 @@ function insulinGuardOk(){
     const hrs=(new Date()-last)/36e5;
     const ago=hrs<1?`${Math.round(hrs*60)} minutes`:`${hrs.toFixed(1)} hours`;
     const who=carerOf(entries.find(e=>e.type==='insulin'&&+ts(e)===+last));
-    if(hrs<cfg.gap*0.5&&!confirm(`Last insulin was ${ago} ago${who?' by '+who:''} — well short of the ${cfg.gap}h gap. Log another shot?`))return false;
+    if(hrs<cfg.gap*0.5&&!confirm(`Last insulin was ${ago} ago${who?' by '+who:''} — well short of the ${cfg.gap}h gap.${staleNote()} Log another shot?`))return false;
   }
-  const fed=lastOf('food');
-  if((fed?(new Date()-fed)/6e4:Infinity)>45&&!confirm('No food logged in the last 45 minutes. Did he actually eat? Insulin normally goes in after a meal.'))return false;
+  const fed=lastOf('food'),m=lastMeal(),a=m&&ateOf(m);
+  if((fed?(new Date()-fed)/6e4:Infinity)>45){if(!confirm('No food logged in the last 45 minutes. Did he actually eat? Insulin normally goes in after a meal.'))return false}
+  else if((a==='half'||a==='none')&&!confirm(`The log says he ate ${a} of his ${fmt12(m.time)} food. Log insulin?`))return false;
   return true;
+}
+
+/* ---------------- health checks ----------------
+   Predicates over the log, shown as cards under the hero (renderHealth). None of
+   them suggests or blocks a dose. The phone numbers, the rescue steps and the
+   weight figure are typed into Setup; the app ships no medical wording of its own. */
+function staleNote(now=new Date()){
+  if(!cfg.syncUrl||!cfg.syncKey)return'';
+  const h=cfg.lastSync?Math.round((now-new Date(cfg.lastSync))/36e5):-1;
+  if(h===0)return'';
+  return ` This phone ${h<0?'has never synced':`last synced ${h<48?h+' hour'+(h===1?'':'s'):Math.round(h/24)+' days'} ago`}, so a shot logged on the other phone may not show here.`;
+}
+/* What he ate rides in the food entry's note ("ate: half, ..."), because the note is
+   what reaches the sheet and the other phone. qty stays cans put down: stock counts it. */
+function ateOf(e){return((e.note||'').match(/\bate: (all|half|none)\b/)||[])[1]||''}
+function ateNote(note,v){const rest=(note||'').replace(/\bate: \w+(, )?/,'');return `ate: ${v}`+(rest?', '+rest:'')}
+function lastMeal(now=new Date()){ // the newest food entry of the last 3 hours
+  return entries.filter(e=>e.type==='food'&&now-ts(e)>=0&&now-ts(e)<3*36e5).sort((a,b)=>ts(b)-ts(a))[0]||null;
+}
+function setAte(id,v){
+  const e=entries.find(x=>x.id===id);if(!e)return;
+  e.note=ateNote(e.note,v);queueUpd(e);save();saveCfg();renderAll();toast(`Ate ${v}: saved`);
+  if(cfg.syncUrl&&cfg.syncKey)syncNow();
+}
+/* A sync only pulls rows this phone doesn't have, so an answer given on the other
+   phone after the food row was pulled would never arrive. Take it from the sheet
+   row, unless this phone has its own edit of that row still waiting to go up. */
+function adoptAte(rows){
+  const mine=new Set(fixQueue().upd.map(u=>rowOf(u)));let n=0;
+  entries.forEach(e=>{
+    if(e.type!=='food'||mine.has(rowOf(tripleOf(e))))return;
+    const r=rows.find(x=>x.key===keyOf(e)),a=r?ateOf({note:r.notes}):'';
+    if(a&&a!==ateOf(e)){e.note=ateNote(e.note,a);n++}
+  });
+  return n;
+}
+/* Two of sick/diarrhea inside 24 hours, and no urine test since the first of them. */
+function ketoneNudge(now=new Date()){
+  const ev=entries.filter(e=>(e.type==='sick'||e.type==='diarrhea')&&now-ts(e)>=0&&now-ts(e)<864e5);
+  if(ev.length<2)return false;
+  const first=Math.min(...ev.map(e=>+ts(e)));
+  return !entries.some(e=>e.type==='urine'&&+ts(e)>=first&&ts(e)<=now);
+}
+/* A urine test's values live in its note ("Ketone: neg · Glucose: +++"), which syncs; read them back out. */
+function urineVals(e){
+  const g=l=>(((e.note||'').match(new RegExp('(?:^|· )'+l+': ([^·]*)'))||[])[1]||'').trim();
+  return{ket:g('Ketone'),glu:g('Glucose')};
+}
+/* Weigh-ins of the last 90 days: the change across them, and the drop from the
+   highest. A trailing high, not the all-time one, or it would warn for ever. */
+function weightTrend(now=new Date()){
+  const w=series('weight').filter(p=>p.d>=isoBack(90,now)&&p.d<=iso(now));
+  if(!w.length)return null;
+  const r=n=>Math.round(n*10)/10,last=w[w.length-1],peak=w.reduce((a,p)=>p.v>a.v?p:a),drop=r(peak.v-last.v);
+  return{last,first:w[0],peak,change:w.length>1?r(last.v-w[0].v):null,drop,warn:+cfg.weightDrop>0&&drop>=+cfg.weightDrop};
+}
+/* The newest "Dose change" entry, when it names a dose this phone isn't using and
+   hasn't been answered here. A change made in this phone's Setup sets cfg.insulin
+   itself, so only one pulled from the other phone is ever offered. */
+function doseOffer(){
+  const d=entries.filter(e=>e.type==='dose'&&+e.qty>0).sort((a,b)=>ts(b)-ts(a))[0];
+  return d&&+d.qty!==+cfg.insulin&&cfg.doseSeen!==keyOf(d)?d:null;
+}
+function useDose(yes){
+  const d=doseOffer();if(!d)return;
+  if(yes){cfg.insulin=+d.qty;['am','pm'].forEach(w=>cfg[w].forEach(r=>{if(r[0]==='insulin')r[1]=+d.qty}))}
+  cfg.doseSeen=keyOf(d);saveCfg();renderAll();
+  toast(yes?`This phone now uses ${cfg.insulin} units`:`Kept ${cfg.insulin} units on this phone`);
+}
+const telHref=n=>'tel:'+String(n).replace(/[^\d+]/g,'');
+function vetButtons(){
+  return [['Vet',cfg.vetDay],['Out of hours',cfg.vetNight]].filter(x=>String(x[1]||'').trim())
+    .map(([l,n])=>`<a class="btn dgr" style="display:block;text-align:center;text-decoration:none;margin-top:9px" href="${telHref(n)}">📞 ${l} · ${esc(n)}</a>`).join('');
+}
+function renderHealth(){
+  const card=(k,d,btns,red)=>`<div class="card" style="margin-top:12px${red?';border-color:rgba(255,107,107,.35)':''}">
+    <div class="k"${red?' style="color:#FFA8A8"':''}>${k}</div><div class="d" style="margin-top:5px;font-size:13px">${d}</div>
+    ${btns?`<div style="display:flex;gap:8px;margin-top:10px">${btns.map(([t,f])=>`<button class="btn sec" style="margin:0;padding:11px 6px;font-size:13.5px" onclick="${f}">${t}</button>`).join('')}</div>`:''}</div>`;
+  let h='';
+  if(!PET){
+    const d=doseOffer(),m=lastMeal(),w=weightTrend(),by=d&&carerOf(d);
+    if(d)h+=card('Dose change',`📈 Dose changed to <b>${+d.qty} units</b>${by?' by '+esc(by):''} (${esc(dayLabel(d.date))}). This phone still uses ${cfg.insulin}.`,[[`Use ${+d.qty} units here`,'useDose(1)'],[`Keep ${cfg.insulin}`,'useDose(0)']]);
+    if(m&&!ateOf(m))h+=card('Did he eat?',`🥫 Food logged at ${fmt12(m.time)}. How much of it did he eat?`,['all','half','none'].map(v=>[v[0].toUpperCase()+v.slice(1),`setAte('${m.id}','${v}')`]));
+    if(ketoneNudge())h+=card('Urine test','🧪 Sick or diarrhea is in the log twice in the last 24 hours. A urine ketone test is worth doing.',[['Log urine test','openUrineSheet()']],1);
+    if(w&&w.warn)h+=card('Weight',`⚖️ Down <b>${w.drop} kg</b> from ${w.peak.v} kg (${esc(dayLabel(w.peak.d))}). That is past the ${+cfg.weightDrop} kg set in Setup.`,0,1);
+  }
+  document.getElementById('healthWarn').innerHTML=h;
+  const v=vetButtons();
+  document.getElementById('vetCard').innerHTML=v||'<p class="note">No numbers yet. Add your vet and the out-of-hours vet in Setup, so both are one tap away.</p>';
+  document.getElementById('vetSec').style.display=v||!PET?'':'none';
+}
+/* The rescue card. The entry takes the time the card was opened, not the time of
+   the tap, and every sign tapped while it is open lands in that one entry's note. */
+const HYPO_SIGNS=['Wobbly','Collapsed','Seizure','Honey given'];
+let hypoAt=null;
+function hypoNote(note,what){return (note||'').includes(what)?note:(note?note+', ':'')+what}
+function hypoEntry(){return hypoAt&&entries.find(e=>e.type==='hypo'&&e.date===iso(hypoAt)&&e.time===hm(hypoAt))}
+function openHypo(){
+  hypoAt=new Date();
+  document.getElementById('hypoSteps').textContent=cfg.rescue||'No steps saved yet. Ask your vet what to do when his sugar drops, then type it in Setup → Emergency vet.';
+  document.getElementById('hypoVet').innerHTML=vetButtons();
+  renderHypo();openSheet('hypoSheet');
+}
+function renderHypo(){
+  const e=hypoEntry();
+  document.getElementById('hypoBtns').innerHTML=HYPO_SIGNS.map(s=>{const on=e&&e.note.includes(s);
+    return `<button class="btn ${on?'':'sec'}" style="margin:0;padding:13px 6px;font-size:14px" onclick="logHypo('${s}')">${on?'✓ ':''}${s}</button>`}).join('');
+}
+function logHypo(what){
+  const e=hypoEntry();
+  if(!e)add('hypo','',what,hypoAt);
+  else if(!e.note.includes(what)){e.note=hypoNote(e.note,what);queueUpd(e);save();saveCfg();renderAll()}
+  renderHypo();toast(`${what} logged`);
+  if(cfg.syncUrl&&cfg.syncKey)syncNow();
 }
 
 /* ---------------- medicine stock ---------------- */
@@ -1955,25 +2099,6 @@ async function pushStock(silent,sheet){
   }
 }
 
-/* The script writes the report and emails it; nothing comes back but a receipt.
-   The model is retried when busy, so this can sit for the better part of a
-   minute. */
-async function emailReportNow(){
-  const url=cfg.syncUrl,key=cfg.syncKey;
-  if(!url||!key){toast('Set the sync URL and secret first');return}
-  const btn=document.getElementById('reportBtn');
-  btn.disabled=true;btn.textContent='Writing the report\u2026';
-  try{
-    const d=await fetchJson(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body:JSON.stringify({secret:key,action:'report'})},120000);
-    toast(d.error?'Report failed: '+syncErr(d.error):'Report emailed to '+d.to);
-  }catch(err){
-    toast('Report failed: '+(err&&err.message?err.message:err));
-  }finally{
-    btn.disabled=false;btn.textContent='Email the monthly report now';
-  }
-}
-
 /* ---------------- vet summary ---------------- */
 function vetSummary(days=30){
   const today=iso(new Date());
@@ -2026,7 +2151,9 @@ function vetSummary(days=30){
   const meds=['pred','para','synulox','samylin','cerenia'].filter(t=>sum(t)>0);
   if(meds.length)L.push(`Meds: ${meds.map(t=>`${T[t].n} ${sum(t)} ${T[t].u}`).join(', ')}`);
   }
-  const inc=inRange.filter(e=>['sick','diarrhea','pee'].includes(e.type))
+  const ate=v=>inRange.filter(e=>e.type==='food'&&ateOf(e)===v).length;
+  if(!PET&&ate('all')+ate('half')+ate('none'))L.push(`Ate his food: all ${ate('all')}, half ${ate('half')}, none ${ate('none')} (of the meals where it was recorded)`);
+  const inc=inRange.filter(e=>['sick','diarrhea','pee','hypo'].includes(e.type))
     .sort((a,b)=>(a.date+a.time)<(b.date+b.time)?-1:1);
   L.push('', inc.length?`Incidents (${inc.length}):`:'Incidents: none');
   inc.forEach(e=>L.push(`  ${e.date} ${e.time} \u2014 ${T[e.type].n}${e.note?': '+e.note:''}`));
@@ -2145,6 +2272,7 @@ function tileGrid(el,keys){
       if(k==='walk'||(PET&&k==='c_work')){startWalk(k==='walk'?'walk':'van');return}
       if(k==='vet'){if(vetState){toast('Vet visit already in progress')}else{startVet()}return}
       if(k==='urine'){openUrineSheet();return}
+      if(k==='hypo'){openHypo();return}
       if(k==='insulin'&&!insulinGuardOk())return;
       // A reading has no sensible default: logging 14 would be a fake one. Cancel logs nothing.
       if(k==='glucose'){const v=prompt('Glucose reading (mmol/L)?');if(v===null)return;
@@ -2250,12 +2378,18 @@ function renderCharts(){
   const c=document.getElementById('charts');
   const last30=isoBack(30);
   const inc30=inc.filter(e=>e.date>=last30).length;
+  const ur=entries.filter(e=>e.type==='urine').sort((a,b)=>(a.date+a.time)<(b.date+b.time)?1:-1);
   const first=entries.reduce((a,e)=>e.date&&e.date<a?e.date:a,'9');
   const since=first<'9'?'since '+new Date(first+'T12:00:00').toLocaleDateString(undefined,{month:'short',year:'numeric'}):'';
   document.getElementById('trendSince').textContent=since;
   c.innerHTML=`
   <div class="chart"><h3>Weight</h3><div class="sub">Every weigh-in ${since}</div>${lineChart(w,cvar('--vet'),' kg',true)}</div>
-  <div class="chart"><h3>Glucose</h3><div class="sub">Home Libre readings and vet readings, mmol/L</div>${lineChart(g,cvar('--alert'),'',true)}</div>
+  <div class="chart"><h3>Glucose</h3><div class="sub">Vet readings, mmol/L</div>${lineChart(g,cvar('--alert'),'',true)}</div>
+  <div class="chart"><h3>Urine tests</h3><div class="sub">Ketone and glucose, newest first</div>
+    ${ur.slice(0,12).map(e=>{const v=urineVals(e);return `<div style="display:flex;gap:9px;font-size:13px;padding:5px 0;border-bottom:1px solid var(--line)">
+      <span class="mono" style="color:var(--dim);width:74px;flex:none">${e.date.slice(8)}/${e.date.slice(5,7)}/${e.date.slice(2,4)}</span>
+      <span>${v.ket||v.glu?`Ketone <b>${esc(v.ket||'—')}</b> · Glucose <b>${esc(v.glu||'—')}</b>`:`<span style="color:var(--mu)">${esc(e.note||'no values recorded')}</span>`}</span></div>`}).join('')||'<div class="note">No urine tests logged yet.</div>'}
+  </div>
   <div class="chart"><h3>Insulin per day</h3><div class="sub">Total units across both shots</div>${barChart(ins,cvar('--insulin'),'u')}</div>
   <div class="chart"><h3>Walking per day</h3><div class="sub">Minutes on his feet</div>${barChart(wk,cvar('--walk'),' min')}</div>
   <div class="chart"><h3>Food per day</h3><div class="sub">Cans</div>${barChart(fd,cvar('--food'),' cans')}</div>
@@ -2273,6 +2407,7 @@ function renderSettings(){
   document.getElementById('sPm').value=cfg.pmTime;
   document.getElementById('sGap').value=cfg.gap;
   document.getElementById('sCarer').value=cfg.carer||'';
+  [['sVetDay','vetDay'],['sVetNight','vetNight'],['sRescue','rescue'],['sWeightDrop','weightDrop']].forEach(([id,k])=>document.getElementById(id).value=cfg[k]||'');
   document.getElementById('homeStatus').textContent=cfg.homeLat!=null?`Set — ${cfg.homeLat.toFixed(5)}, ${cfg.homeLon.toFixed(5)} ${cfg.homeAcc!=null?`(±${cfg.homeAcc}m)`:'(accuracy unknown — re-set it)'}`:'Not set.';
   document.getElementById('sSyncUrl').value=cfg.syncUrl||'';
   document.getElementById('sSyncKey').value=cfg.syncKey||'';
@@ -2307,6 +2442,12 @@ function renderSettings(){
     if(id==='sCarer')cfg.carer=v.trim();
     saveCfg();renderAll();toast('Saved');
   });
+});
+
+document.addEventListener('change',ev=>{
+  const m={sVetDay:'vetDay',sVetNight:'vetNight',sRescue:'rescue',sWeightDrop:'weightDrop'}[ev.target.id];
+  if(!m)return;
+  cfg[m]=ev.target.value.trim();saveCfg();renderAll();toast('Saved');
 });
 
 /* ---------------- Google Sheet sync ---------------- */
@@ -2357,7 +2498,7 @@ function formatQtySheet(type,qty){
   if(u==='min')return`${qty} min`;
   return String(qty);
 }
-/* Callers include app-open, every insulin log and the service worker, none of
+/* Callers include app-open and every insulin log, none of
    which see the disabled button; overlapping runs push the same rows twice.
    A request made mid-sync runs once more after, so a fresh entry still goes. */
 let syncBusy=false,syncAgain=false,fixWarned=false,autoAt=0,syncQuiet=false;
@@ -2447,6 +2588,7 @@ async function syncOnce(){
     // rows pulled in as 'note' because their type wasn't recognized, so the
     // key still matches the sheet on future syncs instead of re-pulling forever)
     const localKeys=new Set(entries.map(keyOf));
+    adoptAte(sheetParsed);
     // a re-logged key that is live on the sheet again needs no more protecting
     entries.forEach(e=>{if(e.relog&&sheetKeys.has(keyOf(e)))delete e.relog});
 
@@ -2493,7 +2635,7 @@ async function syncOnce(){
     await save();await saveCfg();
     await pushStock(true,listData.stock||[]);   // keeps the sheet's Stock tab in step, if it isn't already
     renderAll();
-    if(pushErr){toast('Push failed: '+syncErr(pushErr),0,1);registerSyncRetry();return}
+    if(pushErr){toast('Push failed: '+syncErr(pushErr),0,1);return}
     cfg.lastSync=new Date().toISOString();await saveCfg();
     document.getElementById('syncStatus').textContent=`Last synced ${new Date(cfg.lastSync).toLocaleString()}`;
     renderSyncFab();
@@ -2501,7 +2643,6 @@ async function syncOnce(){
     if(fixMsg||pushed||pulled||removed||!quiet)toast(fixMsg||`Synced — ${pushed} pushed, ${pulled} pulled${removed?`, ${removed} deleted`:''}`,0,1);
   }catch(err){
     toast('Sync error: '+(err&&err.message?err.message:err),0,1);
-    registerSyncRetry();
   }finally{
     btn.textContent='Sync with Google Sheet';btn.disabled=false;
     fab.classList.remove('busy');fab.disabled=false;
@@ -2555,6 +2696,7 @@ function closeSheet(){
   document.getElementById('sheet').classList.remove('on');
   document.getElementById('vetSheet').classList.remove('on');
   document.getElementById('urineSheet').classList.remove('on');
+  document.getElementById('hypoSheet').classList.remove('on');
   document.getElementById('sumSheet').classList.remove('on');
   document.getElementById('featuresSheet').classList.remove('on');
   document.getElementById('typeSheet').classList.remove('on');
@@ -2584,7 +2726,7 @@ function saveEntry(){
   else{const e=Object.assign({id:uid()},o);if(cfg.carer)e.by=cfg.carer;entries.push(e);revive(e)}
   save();renderAll();closeSheet();sweepMedia();
   toast(editId?'Entry updated':`${T[o.type].n} logged`);
-  // The script's missed-shot checker reads the sheet every 15 min; without this,
+  // The script's missed-shot checker reads the sheet every 30 min; without this,
   // a shot logged but not yet manually synced looks unlogged and gets a false
   // "not logged" email until the next sync. An edit sends its fix queue.
   if((editId||o.type==='insulin')&&cfg.syncUrl&&cfg.syncKey)syncNow();
@@ -2883,7 +3025,7 @@ function renderSyncFab(){
   document.getElementById('hsub').textContent=`${entries.length} entries`;
 }
 function renderAll(){
-  sortEntries();renderRing();renderChecks();renderToday();renderGlance();renderRoutineCards();renderStockWarn();renderSyncFab();
+  sortEntries();renderRing();renderChecks();renderToday();renderGlance();renderRoutineCards();renderHealth();renderStockWarn();renderSyncFab();
   if(document.getElementById('v-hist').classList.contains('on')){renderFilters();renderHist()}
   if(document.getElementById('v-trend').classList.contains('on'))renderCharts();
   if(document.getElementById('v-stock').classList.contains('on'))renderStockAll();
@@ -2901,7 +3043,7 @@ function tick(){
     document.documentElement.setAttribute('data-pet',PET);document.title='Reggie — Care Log';
     document.getElementById('hname').textContent='Reggie';document.getElementById('btnPet').title='Switch to Zuse';document.getElementById('btnPet').firstChild.nodeValue='🐶';
     // Zuse's medicines stay out of Reggie's pickers; a sheet row naming one still pulls in as itself
-    ['insulin','samylin','pred','para','synulox','cerenia','chicken','carrot','treat','glucose','urine','food','dose','syringe','weewee','poop','bath','sick'].forEach(k=>{if(T[k])T[k].h=1});
+    ['insulin','samylin','pred','para','synulox','cerenia','chicken','carrot','treat','glucose','urine','food','dose','syringe','weewee','poop','bath','sick','hypo'].forEach(k=>{if(T[k])T[k].h=1});
     // In the Android app, the page left in memory must be Zuse's: the app refreshes his insulin reminders from it.
     // Not at once on hide, so picking a photo or sharing doesn't throw Reggie's page away; and not while a walk or van
     // trip is running here (checked when the time is up, so one the service ended meanwhile doesn't hold it for good).
@@ -2915,12 +3057,7 @@ function tick(){
   renderAll();renderWalkBar();renderVetBar();takeNative();if(walkState)armWalkAutoEnd();
   if(vetState){openVetSheet();toast('Vet visit resumed');}
   tick();setInterval(tick,20000);
-  if('serviceWorker' in navigator){
-    navigator.serviceWorker.register('sw.js').then(reg=>{registerPeriodicSync(reg)}).catch(()=>{});
-    navigator.serviceWorker.addEventListener('message',ev=>{
-      if(ev.data&&ev.data.type==='zuse-sync-now'&&cfg.syncUrl&&cfg.syncKey)syncNow();
-    });
-  }
+  if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
   if(NAT){
     document.getElementById('installSec').style.display='none';
     if(NAT.setSyncEvery&&!PET){document.getElementById('bgSyncRow').style.display='block';setBgSync(cfg.bgSync??30)}
@@ -2933,17 +3070,6 @@ function tick(){
   // ask the browser not to evict the log and photos under storage pressure
   try{navigator.storage?.persist?.()}catch(e){}
 })();
-async function registerPeriodicSync(reg){
-  if(!('periodicSync'in reg))return;
-  try{
-    const status=await navigator.permissions.query({name:'periodic-background-sync'});
-    if(status.state==='granted')await reg.periodicSync.register('zuse-periodic-sync',{minInterval:12*60*60*1000});
-  }catch(e){}
-}
-async function registerSyncRetry(){
-  if(!('serviceWorker'in navigator)||!('SyncManager'in window))return;
-  try{const reg=await navigator.serviceWorker.ready;await reg.sync.register('zuse-sync-retry')}catch(e){}
-}
 </script>
 </body>
 </html>

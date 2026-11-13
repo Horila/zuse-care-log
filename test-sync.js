@@ -3,7 +3,7 @@
  * Apps Script can't be tested in place — you paste it into Google and hope.
  * So this evaluates the real file under stubbed Google services and a frozen
  * clock, and exercises the parts that quietly misfire: the missed-shot
- * reminder around midnight, and the monthly report's aggregation.
+ * reminder around midnight, and the stock forecast.
  *
  * Run:  node test-sync.js
  */
@@ -45,8 +45,7 @@ function frozenDate(nowMs) {
 function load(nowMs, rows, opts) {
   opts = opts || {};
   const mail = [];
-  const fetches = [];
-  const slept = [];
+  const triggers = { deleted: [], created: [] };
   const locks = [];
   const props = Object.assign({}, opts.props || {});
   const values = [['header'], ['header']].concat(
@@ -91,7 +90,7 @@ function load(nowMs, rows, opts) {
       createTextOutput: t => ({ __out: t, setMimeType: function () { return this; } }),
     },
     Date: frozenDate(nowMs),
-    Utilities: { formatDate, sleep: () => { slept.push(1); } },
+    Utilities: { formatDate },
     Session: { getScriptTimeZone: () => 'Europe/London' },
     Logger: { log: () => {} },
     LockService: { getScriptLock: () => ({ waitLock: () => { locks.push('wait'); }, releaseLock: () => { locks.push('release'); } }) },
@@ -105,21 +104,10 @@ function load(nowMs, rows, opts) {
       }),
     },
     ScriptApp: {
-      getProjectTriggers: () => [],
-      newTrigger: () => { throw new Error('trigger creation not exercised'); },
-    },
-    UrlFetchApp: {
-      fetch: () => {
-        // opts.geminiSeq lets a test hand back 503 then 200 and watch the retry.
-        const step = opts.geminiSeq ? opts.geminiSeq[Math.min(fetches.length, opts.geminiSeq.length - 1)] : null;
-        fetches.push(1);
-        const code = step ? step.code : (opts.geminiCode === undefined ? 200 : opts.geminiCode);
-        const body = step && step.body !== undefined ? step.body
-          : (opts.geminiBody === undefined
-            ? JSON.stringify({ candidates: [{ content: { parts: [{ text: 'PROSE' }] } }] })
-            : opts.geminiBody);
-        return { getResponseCode: () => code, getContentText: () => body };
-      },
+      // opts.triggers: handler names already installed. Only the everyMinutes chain is stubbed.
+      getProjectTriggers: () => (opts.triggers || []).map(h => ({ getHandlerFunction: () => h })),
+      deleteTrigger: tr => { triggers.deleted.push(tr.getHandlerFunction()); },
+      newTrigger: h => ({ timeBased: () => ({ everyMinutes: m => ({ create: () => { triggers.created.push(h + '@' + m); } }) }) }),
     },
     SpreadsheetApp: {
       getActiveSpreadsheet: () => ({
@@ -153,13 +141,12 @@ function load(nowMs, rows, opts) {
   const names = Object.keys(stubs);
   const body = src + `
     ;return {readRows, parseRowDate_, slotsToCheck_, checkShotDue, cleanupAlertKeys_,
-             numFrom_, bucket_, buildReportStats_, sendMonthlyReport, askGemini_,
-             reportPrompt_, fmtDay_, canonType_, incidentKey_,
+             numFrom_, fmtDay_, canonType_, installReminders,
              checkStock, readStockTab_, stockForecast_, writeStockTab_, doPost, doGet};`;
   const api = new Function(...names, body)(...names.map(n => stubs[n]));
   const post = o => JSON.parse(api.doPost({ postData: { contents: JSON.stringify(
     Object.assign({ secret: 'CHANGE_ME_TO_YOUR_OWN_SECRET' }, o)) } }).__out);
-  return { api, mail, props, fetches, slept, events, formats, locks, post, stock: () => stockTab, sheet: () => mainTab };
+  return { api, mail, props, triggers, events, formats, locks, post, stock: () => stockTab, sheet: () => mainTab };
 }
 
 const at = (y, m, d, h, mi) => new Date(y, m - 1, d, h, mi, 0).getTime();
@@ -286,7 +273,7 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
     props: {
       'alerted:2026-08-27:night': '1',
       'alerted:2026-08-01:morning': '1',
-      'GEMINI_API_KEY': 'keep-me',
+      'SOME_OTHER_KEY': 'keep-me',
     },
   });
   api.cleanupAlertKeys_(({
@@ -295,250 +282,7 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   }));
   ok('alerted:2026-08-27:night' in props, 'yesterday stays');
   ok(!('alerted:2026-08-01:morning' in props), '27 days old is dropped');
-  eq(props['GEMINI_API_KEY'], 'keep-me', 'non-alert properties are untouched');
-}
-
-/* ======================== monthly report ======================== */
-{
-  const { api } = load(at(2026, 8, 28, 12, 0), []);
-  eq(api.numFrom_('8 Units'), 8, 'number is split off the unit text');
-  eq(api.numFrom_('30 min'), 30, 'same for minutes');
-  eq(api.numFrom_('2'), 2, 'plain numbers work');
-  eq(api.numFrom_(''), 0, 'blank is zero, not NaN');
-  eq(api.numFrom_(null), 0, 'null is zero, not NaN');
-  eq(api.numFrom_('lots'), 0, 'unparseable is zero, not NaN');
-  eq(api.numFrom_(-1.5), -1.5, 'negatives and decimals survive');
-}
-{
-  // Ten days back is period A; forty days back is period B. Neither window may
-  // borrow from the other.
-  const now = at(2026, 8, 28, 12, 0);
-  const { api } = load(now, [
-    [cell(2026, 8, 18), cell(2026, 8, 18, 11, 30), 'Insulin', '8 Units', ''],
-    [cell(2026, 8, 18), cell(2026, 8, 18, 23, 30), 'Insulin', '9 Units', ''],
-    [cell(2026, 7, 19), cell(2026, 7, 19, 11, 30), 'Insulin', '7 Units', ''],
-    [cell(2026, 8, 20), cell(2026, 8, 20, 9, 0), 'Weight', '16.1', ''],
-    [cell(2026, 8, 21), cell(2026, 8, 21, 20, 0), 'Was sick', '', 'after supper'],
-    [cell(2026, 7, 20), cell(2026, 7, 20, 20, 0), 'Diarrhea', '', ''],
-    [cell(2026, 8, 22), cell(2026, 8, 22, 8, 0), 'Urine test', '', 'Ketone: neg'],
-    [cell(2026, 1, 5), cell(2026, 1, 5, 8, 0), 'Insulin', '8 Units', ''],
-  ]);
-  const s = api.buildReportStats_(30);
-  ok(/Insulin: 17 over 2 entries/.test(s.text), 'period A totals only period A');
-  ok(/was\s+7 over 1 entries/.test(s.text), 'period B is reported alongside');
-  ok(/16\.1 kg on 2026-08-20/.test(s.text), 'weigh-ins are listed with dates');
-  ok(/A: 1\b/.test(s.text) && /after supper/.test(s.text), 'incident A counted, note kept');
-  ok(/B: 1\b/.test(s.text), 'incident B counted separately');
-  ok(/Ketone: neg/.test(s.text), 'urine notes carried through');
-  ok(!/2026-01-05/.test(s.text), 'an entry older than both windows is excluded');
-  ok(!/NaN|undefined|Infinity/.test(s.text), 'no NaN/undefined/Infinity in the figures');
-  eq(s.label, '2026-07-29 to 2026-08-28', 'label names the current window');
-}
-{
-  const { api } = load(at(2026, 8, 28, 12, 0), []);
-  const s = api.buildReportStats_(30);
-  ok(/no weigh-ins/.test(s.text), 'an empty log still produces a readable block');
-  ok(!/NaN|undefined/.test(s.text), 'and no NaN/undefined with nothing to report');
-}
-
-/* ==================== report delivery paths ==================== */
-{
-  // Happy path: key present, model answers.
-  const { api, mail } = load(at(2026, 8, 28, 12, 0), [
-    [cell(2026, 8, 18), cell(2026, 8, 18, 11, 30), 'Insulin', '8 Units', ''],
-  ], { props: { GEMINI_API_KEY: 'k' } });
-  api.sendMonthlyReport();
-  eq(mail.length, 1, 'the report is emailed');
-  ok(/^PROSE/.test(mail[0].body), 'the write-up leads');
-  ok(/THIS PERIOD/.test(mail[0].body), 'the figures are appended underneath');
-}
-{
-  // No key: still send, with the numbers and an explanation.
-  const { api, mail } = load(at(2026, 8, 28, 12, 0), [], {});
-  api.sendMonthlyReport();
-  eq(mail.length, 1, 'a missing key does not cancel the report');
-  ok(/No GEMINI_API_KEY/.test(mail[0].body), 'and it says why there is no write-up');
-  ok(/THIS PERIOD/.test(mail[0].body), 'the figures are still there');
-}
-{
-  // API failure: still send, and name the failure.
-  const { api, mail } = load(at(2026, 8, 28, 12, 0), [], {
-    props: { GEMINI_API_KEY: 'k' }, geminiCode: 429, geminiBody: 'rate limited',
-  });
-  api.sendMonthlyReport();
-  eq(mail.length, 1, 'an API error does not cancel the report');
-  ok(/write-up failed/.test(mail[0].body), 'the email admits the write-up failed');
-  ok(/429/.test(mail[0].body), 'and carries the status code');
-  ok(/THIS PERIOD/.test(mail[0].body), 'the figures survive the failure');
-}
-{
-  // A 200 with no candidates (safety block) must not email an empty report.
-  const { api, mail } = load(at(2026, 8, 28, 12, 0), [], {
-    props: { GEMINI_API_KEY: 'k' }, geminiBody: JSON.stringify({ candidates: [] }),
-  });
-  api.sendMonthlyReport();
-  eq(mail.length, 1, 'a blocked or empty response still sends the figures');
-  ok(/write-up failed/.test(mail[0].body), 'and is reported as a failure');
-}
-{
-  const { api } = load(at(2026, 8, 28, 12, 0), [], { props: { GEMINI_API_KEY: 'k' } });
-  const p = api.reportPrompt_({ text: 'FIGURES' });
-  ok(/Do NOT suggest, adjust, or comment on insulin doses/.test(p), 'dose advice is forbidden in the prompt');
-  ok(/do NOT give clinical advice/i.test(p), 'clinical advice is forbidden in the prompt');
-  ok(p.indexOf('FIGURES') !== -1, 'the figures are what it reasons over');
-}
-
-/* ============ real-sheet messiness (from an actual monthly report) ============
-   The TYPE column has been used as free text for years. The first live run
-   split Chicken Slice in two and reported 3 incidents where there were 8. */
-{
-  const { api } = load(at(2026, 8, 28, 12, 0), []);
-  eq(api.canonType_('Chicken Slice \uD83C\uDF57'), 'Chicken Slice', 'emoji stripped off a known type');
-  eq(api.canonType_('  canned FOOD '), 'Canned Food', 'case and padding normalised');
-  eq(api.canonType_('Treats'), 'Treat', 'plural folded onto the singular');
-  eq(api.canonType_('Frontline Wormer'), 'Wormer / Flea', 'old product name folded in');
-  eq(api.canonType_('weewee'), 'Wee Wee', 'spacing variant folded in');
-  eq(api.canonType_('tummy rumbling'), null, 'a hand-typed note is not a type');
-  eq(api.canonType_('diarrhea again \uD83D\uDE15'), null, 'nor is a hand-typed variant of one');
-}
-{
-  const now = at(2026, 8, 28, 12, 0);
-  const d = (day) => cell(2026, 8, day);
-  const t = (day, h) => cell(2026, 8, day, h, 0);
-  const { api } = load(now, [
-    // the two spellings that were being counted as different foods
-    [d(10), t(10, 9), 'Chicken Slice', '158', ''],
-    [d(11), t(11, 9), 'Chicken Slice \uD83C\uDF57', '1202', ''],
-    // incidents: one clean, four hand-typed, all real
-    [d(12), t(12, 9), 'Diarrhea', '', ''],
-    [d(13), t(13, 9), 'diarrhea again \uD83D\uDE15', '', ''],
-    [d(14), t(14, 9), 'diarrhea still \uD83D\uDE14', '', ''],
-    [d(15), t(15, 9), 'wee we/runny poop', '', ''],
-    [d(16), t(16, 9), 'soft poop', '', ''],
-    // not incidents, however much they look like one
-    [d(17), t(17, 9), 'Wee Wee', '', ''],
-    [d(18), t(18, 9), 'wee wee + poop', '', ''],
-    // duplicate weigh-in, same day same value
-    [d(19), t(19, 9), 'Weight', '16.3', ''],
-    [d(19), t(19, 10), 'Weight', '16.3', ''],
-    // an incident recorded only in the notes column
-    [d(20), t(20, 9), 'Note', '', 'was sick after breakfast'],
-  ]);
-  const txt = api.buildReportStats_(30).text;
-
-  ok(/Chicken Slice: 1360 over 2 entries/.test(txt),
-     'both Chicken Slice spellings add up to one total');
-  ok(!/Chicken Slice \uD83C\uDF57:/.test(txt), 'the emoji spelling is not a separate line');
-
-  const inc = txt.match(/  A: (\d+)/);
-  eq(inc && inc[1], '6', 'five hand-typed or clean incidents plus the one in a note');
-  ok(/diarrhea still/.test(txt), 'a hand-typed diarrhea entry is counted');
-  ok(/wee we\/runny poop/.test(txt), 'a runny-poop entry is counted');
-  ok(/was sick after breakfast/.test(txt), 'an incident living only in the notes column is caught');
-
-  ok(!/^\s+2026-08-17 — Wee Wee/m.test(txt), 'an ordinary wee wee is not an incident');
-  ok(!/wee wee \+ poop/.test(txt.split('INCIDENTS')[1] || ''), 'nor is a normal wee wee + poop');
-
-  eq((txt.match(/16\.3 kg on 2026-08-19/g) || []).length, 1, 'the duplicate weigh-in is reported once');
-
-  ok(!/^  Weight: /m.test(txt), 'Weight is not also totalled as a quantity');
-  ok(!/^  Note: /m.test(txt), 'Note is not totalled either');
-  ok(/FREE-TEXT ROWS, no matching type \(A\): 5/.test(txt), 'all five hand-typed rows are listed separately');
-  ok(!/^  diarrhea again/m.test(txt.split('FREE-TEXT')[0]), 'and never as their own total');
-}
-{
-  // The model that 404'd on the first live run must not creep back.
-  const src = require('fs').readFileSync(require('path').join(__dirname, 'zuse-sync-code.gs.txt'), 'utf8');
-  ok(!/gemini-2\.5-flash/.test(src), 'the retired gemini-2.5-flash is gone');
-  ok(/const GEMINI_MODEL = 'gemini-[\d.]+-flash'/.test(src), 'a concrete flash model is pinned');
-  // A busy month is a long write-up. A cap here truncates it mid-sentence.
-  ok(!/maxOutputTokens/.test(src), 'no output token cap on the model');
-}
-{
-  // Uncapped, the model can still spend its whole budget thinking and answer
-  // with nothing. The email has to say that, not just 'no text'.
-  const { api, mail } = load(at(2026, 8, 28, 12, 0), [], {
-    props: { GEMINI_API_KEY: 'k' },
-    geminiBody: JSON.stringify({ candidates: [{ finishReason: 'MAX_TOKENS', content: {} }] }),
-  });
-  api.sendMonthlyReport();
-  eq(mail.length, 1, 'an empty answer still emails the figures');
-  ok(/MAX_TOKENS/.test(mail[0].body), 'and says the model ran out of room');
-}
-
-/* ============ transient API failures (a live run hit HTTP 503) ============
-   This job runs once a month. One attempt against a busy model is not enough. */
-{
-  const { api, mail, fetches, slept } = load(at(2026, 8, 28, 12, 0), [], {
-    props: { GEMINI_API_KEY: 'k' },
-    geminiSeq: [{ code: 503, body: 'busy' }, { code: 503, body: 'busy' },
-                { code: 200 }],
-  });
-  api.sendMonthlyReport();
-  eq(fetches.length, 3, 'retries past two 503s and succeeds on the third');
-  eq(slept.length, 2, 'and backs off between attempts');
-  eq(mail.length, 1, 'one email');
-  ok(/^PROSE/.test(mail[0].body), 'the write-up made it after the retries');
-}
-{
-  const { api, mail, fetches } = load(at(2026, 8, 28, 12, 0), [], {
-    props: { GEMINI_API_KEY: 'k' }, geminiCode: 503, geminiBody: 'busy',
-  });
-  api.sendMonthlyReport();
-  eq(fetches.length, 4, 'gives up after four attempts');
-  eq(mail.length, 1, 'and still emails the figures');
-  ok(/gave up after 4 attempts/.test(mail[0].body), 'saying it gave up');
-  ok(/THIS PERIOD/.test(mail[0].body), 'with the numbers intact');
-}
-{
-  // A retired model or a bad key never fixes itself - do not burn four tries.
-  const { api, fetches } = load(at(2026, 8, 28, 12, 0), [], {
-    props: { GEMINI_API_KEY: 'k' }, geminiCode: 404, geminiBody: 'no such model',
-  });
-  api.sendMonthlyReport();
-  eq(fetches.length, 1, 'a 404 fails immediately without retrying');
-}
-
-/* ============ duplicated incidents (the second live run reported 17 for 9) ====
-   Unrecognised sheet types are pulled into the app as notes and pushed back as
-   type "Note", so the same event sits in the sheet twice. */
-{
-  const { api } = load(at(2026, 8, 28, 12, 0), []);
-  eq(api.incidentKey_('2026-08-11', 'Note', 'diarrhea again \uD83D\uDE15', 'Note'),
-     api.incidentKey_('2026-08-11', 'diarrhea again \uD83D\uDE15', '', null),
-     'the Note mirror and the original share one identity');
-  ok(api.incidentKey_('2026-08-11', 'Note', 'diarrhea', 'Note') !==
-     api.incidentKey_('2026-08-12', 'Note', 'diarrhea', 'Note'),
-     'but the same words on a different day do not');
-}
-{
-  const d = (day) => cell(2026, 8, day), t = (day, h) => cell(2026, 8, day, h, 0);
-  const { api } = load(at(2026, 8, 28, 12, 0), [
-    // the exact duplicate pair from the live report
-    [d(11), t(11, 9), 'Note', '', 'diarrhea again \uD83D\uDE15'],
-    [d(11), t(11, 9), 'diarrhea again \uD83D\uDE15', '', ''],
-    // and one where the notes carry the detail on both copies
-    [d(12), t(12, 9), 'Note', '', 'diarrhea \uD83D\uDE15: le neg. Sg 1.05'],
-    [d(12), t(12, 9), 'diarrhea \uD83D\uDE15', '', 'le neg. Sg 1.05'],
-    // a real incident hiding in the note of an unrelated row
-    [d(18), t(18, 9), 'Canned Food', '2', 'soft poop, but only runny at the very end'],
-    // a clean typed one
-    [d(24), t(24, 9), 'Was sick', '', ''],
-  ]);
-  const txt = api.buildReportStats_(30).text;
-  const n = txt.match(/  A: (\d+)/);
-  eq(n && n[1], '4', 'six rows, four distinct incidents');
-  // Scope the counts to the incident block: an unrecognised row legitimately
-  // appears again under FREE-TEXT ROWS, which is not a duplicate.
-  const incBlock = txt.split('INCIDENTS')[1].split('URINE')[0];
-  eq((incBlock.match(/diarrhea again/g) || []).length, 1, 'the 11 Aug event is listed once');
-  eq((incBlock.match(/Sg 1\.05/g) || []).length, 1, 'the 12 Aug event is listed once');
-  ok(!/Note: diarrhea/.test(txt), 'the generic "Note:" prefix is never the label');
-  ok(/soft poop, but only runny/.test(txt), 'an incident in a note is still reported');
-  ok(!/Canned Food: soft poop/.test(txt),
-     'and is labelled by the event, not by the row it arrived on');
-  // the food row must still count as food
-  ok(/Canned Food: 2 over 1 entries/.test(txt), 'that row is also still a feeding');
+  eq(props['SOME_OTHER_KEY'], 'keep-me', 'non-alert properties are untouched');
 }
 
 /* ============ stock: what is left, and when it runs out ==================== */
@@ -804,12 +548,6 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   eq(v[1][1], 400, 'and the kept one is updated');
 }
 {
-  const { post, mail } = load(at(2026, 8, 28, 12, 0), [], { props: { GEMINI_API_KEY: 'k' } });
-  const r = post({ action: 'report' });
-  eq(r.ok, true, 'the report button gets a receipt');
-  eq(mail.length, 1, 'and the report is actually sent');
-}
-{
   const { post } = load(at(2026, 8, 28, 12, 0), []);
   eq(post({ action: 'nonsense' }).error, 'unknown action', 'anything else is refused');
   eq(JSON.parse(load(at(2026, 8, 28, 12, 0), []).api.doPost(
@@ -989,7 +727,7 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   const rows = t.api.readRows(30);
   eq(rows.length, 3, 'windowed read drops the old date and its blank-date continuation');
   eq(rows[1].date, '10/08/2026', 'a continuation row inside the window keeps its carried date');
-  eq(t.api.readRows().length, 5, 'no argument still reads everything, for the report and stock forecast');
+  eq(t.api.readRows().length, 5, 'no argument still reads everything, for the stock forecast');
   eq(load(at(2026, 8, 28, 12, 0), []).api.readRows(30).length, 0, 'empty sheet is fine');
   const g = JSON.parse(t.api.doGet({ parameter: { secret: 'CHANGE_ME_TO_YOUR_OWN_SECRET' } }).__out);
   eq(g.rows.length, 3, 'doGet list serves the 30-day window');
@@ -1223,8 +961,17 @@ const eq = (a, b, m) => { assert.strictEqual(a, b, `${m} — got ${JSON.stringif
   eq(api.canonType_('fleaing'), 'Wormer / Flea', 'fleaing');
   eq(api.canonType_('worming'), 'Wormer / Flea', 'worming');
   eq(api.canonType_('sick'), 'Was sick', 'sick');
-  const t = load(at(2026, 8, 28, 12, 0), [[cell(2026, 8, 20), cell(2026, 8, 20, 9, 0), 'Dose change', '9', '']]);
-  ok(!/Dose change:/.test(t.api.buildReportStats_(30).text), 'and it is not summed as a total');
+  eq(api.canonType_('Low sugar'), 'Low sugar', 'low sugar');
+}
+
+/* ================= the monthly AI report is gone; the shot check runs every 30 minutes ================= */
+{
+  const { api, post, triggers } = load(at(2026, 8, 28, 12, 0), [], { triggers: ['checkShotDue', 'sendMonthlyReport', 'checkStock'] });
+  eq(post({ action: 'report' }).error, 'unknown action', 'the report action is refused like any unknown one');
+  ok(!/Gemini|GEMINI|UrlFetchApp/.test(SRC), 'nothing in the script calls out to a model any more');
+  api.installReminders();
+  eq(triggers.deleted.join(), 'checkShotDue,sendMonthlyReport', 'installReminders clears its own trigger and the dead monthly one, not the stock check');
+  eq(triggers.created.join(), 'checkShotDue@30', 'and checks every 30 minutes: nothing is reported before the 30-minute grace anyway');
 }
 
 /* ================= writes are serialised by the script lock ================= */

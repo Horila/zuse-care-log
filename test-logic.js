@@ -42,7 +42,7 @@ const T = { insulin: { n: 'Insulin', i: '💉', u: 'units' }, food: { n: 'Canned
             para: { n: 'Paracetamol', u: 'tablets' }, synulox: { n: 'Synulox 250mg', u: 'tablets' },
             samylin: { n: 'Samylin', u: 'tablets' }, cerenia: { n: 'Cerenia 24mg', u: 'tablets' },
             syringe: { n: 'Syringes', i: '💉', u: 'syringes', s: 1 },
-            dose: { n: 'Dose change', i: '📈', u: 'units' } };
+            dose: { n: 'Dose change', i: '📈', u: 'units' }, hypo: { n: 'Low sugar', i: '🆘', u: '' } };
 const esc = s => String(s);
 // The real TYPE_ALIASES spans lines, so grabConst can't lift it; a few entries do.
 const TYPE_ALIASES = { 'insulin': 'insulin', 'canned food': 'food', 'dose change': 'dose' };
@@ -67,6 +67,8 @@ const code = [
   grab('fixQueue'), grab('queueUpd'), grab('forget'), grab('revive'),
   grabConst('COLOURS'), grab('cleanType'), grab('customKey'), grab('nameClash'), grab('mergeCustomTypes'), grab('adoptSrcType'),
   grab('notifPlan'),
+  grab('staleNote'), grab('ateOf'), grab('ateNote'), grab('lastMeal'), grab('adoptAte'), grab('ketoneNudge'), grab('urineVals'),
+  grab('weightTrend'), grab('doseOffer'), grabConst('telHref'), grab('vetButtons'), grab('hypoNote'),
 ].join('\n');
 
 // The extracted code reads free variables `entries` and `cfg`; bind them by
@@ -77,6 +79,7 @@ const api = new Function('T', 'esc', 'TYPE_ALIASES',
   'trackedStock,stockSame,mergeStockRow,lowStock,stockLabel,series,vetSummary,syncErr,isoBack,' +
   'syncPull,syncPush,applyTombs,currentRoutine,routineDone,forget,revive,queueUpd,sheetNote,carerOf,typeKeyFromSheetType,' +
   'extractQty,LOGGABLE,keyOf,cleanType,customKey,nameClash,mergeCustomTypes,adoptSrcType,notifPlan,' +
+  'staleNote,ateOf,ateNote,lastMeal,adoptAte,ketoneNudge,urineVals,weightTrend,doseOffer,vetButtons,hypoNote,' +
   'setWin:w=>{stockWin=w},setState:(e,c)=>{entries=e;cfg=c},getState:()=>({entries,cfg})};')(T, esc, TYPE_ALIASES);
 
 const DAY = 864e5;
@@ -769,6 +772,139 @@ eq(api.typeKeyFromSheetType('Insulin'), 'insulin', 'and insulin is still insulin
   eq(plan({ pred: { qty: 20, since: dayAgo(0) } }).length, 0, 'beyond 14 days is left for a later plan');
   eq(plan({ insulin: { qty: 300, since: dayAgo(0) } }).length, 0, 'already low is told at once, not scheduled');
   eq(plan({ synulox: { qty: 5, since: dayAgo(0) } }).length, 0, 'no rate, no prediction');
+}
+
+/* ================= health checks (2026-11-13) =================
+   Where it matters these run against the app's real history: SEED_MED, lifted
+   out of the source like everything else here. */
+const seedSrc = js.slice(js.indexOf('const SEED_MED=['), js.indexOf('\n];', js.indexOf('const SEED_MED=[')) + 3);
+const SEED = new Function(seedSrc + ';return SEED_MED')().map(([date, time, type, qty, note]) => ({ date, time, type, qty, note }));
+const on = (d, hhmm) => new Date(`${d}T${hhmm || '12:00'}:00`);
+
+/* ---- low sugar: a type of its own, one entry per card ---- */
+{
+  eq(api.typeKeyFromSheetType('Low sugar'), 'hypo', 'a "Low sugar" sheet row pulls in as the hypo type');
+  eq(api.hypoNote('', 'Wobbly'), 'Wobbly', 'the first sign is the note');
+  eq(api.hypoNote('Wobbly', 'Honey given'), 'Wobbly, Honey given', 'a second sign joins the same entry');
+  eq(api.hypoNote('Wobbly, Honey given', 'Wobbly'), 'Wobbly, Honey given', 'tapping a sign twice does not repeat it');
+  api.setState([{ type: 'hypo', date: dayAgo(2), time: '03:10', qty: '', note: 'Collapsed' }], { gap: 12, stock: {} });
+  ok(/Incidents \(1\)[\s\S]*Low sugar: Collapsed/.test(api.vetSummary(30)), 'and the vet summary lists it with the incidents');
+}
+
+/* ---- emergency vet buttons: numbers come from Setup, never from the code ---- */
+{
+  api.setState([], { gap: 12, stock: {}, vetDay: '01202 555 0100', vetNight: '' });
+  const h = api.vetButtons();
+  ok(h.includes('href="tel:012025550100"'), 'the call link is the digits only');
+  ok(h.includes('01202 555 0100') && !/Out of hours/.test(h), 'the number shows as typed, and a blank one gets no button');
+  api.setState([], { gap: 12, stock: {} });
+  eq(api.vetButtons(), '', 'no numbers, no buttons');
+  ok(!/\b0\d{3,4} ?\d{3} ?\d{3,4}\b/.test(js.replace(/placeholder="[^"]*"/g, '')), 'and no phone number is written into the app itself');
+}
+
+/* ---- weight: a trailing 90-day high, tested on his real weigh-ins ---- */
+{
+  api.setState(SEED, { gap: 12, stock: {}, weightDrop: 1 });
+  let w = api.weightTrend(on('2026-02-12', '18:00'));
+  eq(`${w.peak.v} ${w.last.v} ${w.drop} ${w.warn}`, '18.4 16.7 1.7 true', '18.4 kg in January to 16.7 kg in February warns at a 1 kg figure');
+  w = api.weightTrend(on('2026-07-16', '18:00'));
+  eq(`${w.peak.v} ${w.last.v} ${w.drop} ${w.change} ${w.warn}`, '16.5 16.3 0.2 -0.2 false', 'July is quiet: 0.2 kg under the 90-day high, not 2.1 kg under the all-time one');
+  api.setState(SEED, { gap: 12, stock: {}, weightDrop: '' });
+  ok(!api.weightTrend(on('2026-02-12', '18:00')).warn, 'a blank figure never warns');
+  eq(api.weightTrend(on('2025-12-01')), null, 'no weigh-in in the window is no trend');
+}
+
+/* ---- old data: the too-soon question says how old this phone's picture is ---- */
+{
+  const now = new Date();
+  api.setState([], { gap: 12, stock: {} });
+  eq(api.staleNote(now), '', 'no sync set up, nothing to say');
+  const c = h => ({ gap: 12, stock: {}, syncUrl: 'u', syncKey: 'k', lastSync: h == null ? '' : new Date(now - h * 36e5).toISOString() });
+  api.setState([], c(0.2));
+  eq(api.staleNote(now), '', 'a sync a few minutes old is current');
+  api.setState([], c(5));
+  ok(/last synced 5 hours ago/.test(api.staleNote(now)), 'five hours old is said');
+  api.setState([], c(null));
+  ok(/has never synced/.test(api.staleNote(now)), 'never synced is said');
+}
+
+/* ---- did he eat: in the food entry's note, so it reaches the other phone ---- */
+{
+  eq(api.ateNote('', 'half'), 'ate: half', 'the answer becomes the note');
+  eq(api.ateNote('ate: all, slow to start', 'none'), 'ate: none, slow to start', 'a changed answer replaces the old one and keeps the rest');
+  eq(api.ateOf({ note: 'ate: half · R' }), 'half', "read back from a pulled row with the carer's name on the end");
+  eq(api.ateOf({ note: 'he ate: lots' }), '', 'other words are not an answer');
+  const hAgo = h => { const d = new Date(Date.now() - h * 36e5); return { date: dayAgo(0) === `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` ? dayAgo(0) : dayAgo(1), time: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }; };
+  const meal = Object.assign({ type: 'food', qty: 2, note: '' }, hAgo(1)), old = Object.assign({ type: 'food', qty: 2, note: '' }, hAgo(5));
+  api.setState([old], { gap: 12, stock: {} });
+  eq(api.lastMeal(), null, 'a meal five hours ago is not asked about');
+  api.setState([old, meal], { gap: 12, stock: {} });
+  eq(api.lastMeal(), meal, 'the meal of the last three hours is');
+  // the other phone answered after this phone had pulled the row
+  const row = { key: api.keyOf(meal), notes: 'ate: half · R' };
+  eq(api.adoptAte([row]) + ' ' + meal.note, '1 ate: half', "the other phone's answer is taken from the sheet row");
+  eq(api.adoptAte([row]), 0, 'and only once');
+  meal.note = 'ate: all';
+  api.setState([meal], { gap: 12, stock: {}, syncUrl: 'u', syncKey: 'k' });
+  api.queueUpd(meal);
+  eq(api.adoptAte([row]) + ' ' + meal.note, '0 ate: all', "this phone's own answer, still waiting to go up, is not overwritten");
+  api.setState([Object.assign({}, meal, { note: 'ate: none' }), Object.assign({}, old, { note: 'ate: all' })], { gap: 12, stock: {} });
+  ok(/Ate his food: all 1, half 0, none 1/.test(api.vetSummary(30)), 'the vet summary counts the answers');
+}
+
+/* ---- ketone test: two of sick/diarrhea in 24 hours, on the real January run-up ---- */
+{
+  api.setState(SEED, { gap: 12, stock: {} });
+  ok(api.ketoneNudge(on('2026-01-26', '06:00')), 'sick on 25 Jan and diarrhea on 26 Jan suggest a urine test');
+  ok(!api.ketoneNudge(on('2026-01-25', '12:00')), 'one episode alone does not');
+  ok(!api.ketoneNudge(on('2026-01-28', '06:00')), 'and it lapses a day later');
+  api.setState(SEED.concat({ type: 'urine', date: '2026-01-26', time: '05:55', qty: '', note: 'Ketone: neg' }), { gap: 12, stock: {} });
+  ok(!api.ketoneNudge(on('2026-01-26', '06:00')), 'a urine test since the first episode answers it');
+  eq(JSON.stringify(api.urineVals({ note: 'Bilirubin: neg · Ketone: + · Glucose: +++ · pH: 6 · R' })), '{"ket":"+","glu":"+++"}', 'ketone and glucose are read back out of the note');
+  eq(JSON.stringify(api.urineVals({ note: 'leu neg, ph 6, blood neg, pr ++, gl +++' })), '{"ket":"","glu":""}', 'an old free-text note has no labelled values');
+}
+
+/* ---- the dose follows the vet: offered, never applied silently ---- */
+{
+  const d6 = { type: 'dose', date: dayAgo(1), time: '17:30', qty: 6, note: 'was 8 · Roseanne' };
+  const d9 = { type: 'dose', date: dayAgo(40), time: '17:30', qty: 9, note: 'was 8' };
+  api.setState([d9, d6], { gap: 12, stock: {}, insulin: 8 });
+  eq(api.doseOffer(), d6, 'the newest dose change, at a dose this phone is not using, is offered');
+  eq(api.carerOf(api.doseOffer()), 'Roseanne', 'with who made it');
+  eq(api.getState().cfg.insulin, 8, 'and nothing changes until it is answered');
+  api.setState([d9, d6], { gap: 12, stock: {}, insulin: 6 });
+  eq(api.doseOffer(), null, 'a phone already on that dose is not asked');
+  api.setState([d9, d6], { gap: 12, stock: {}, insulin: 8, doseSeen: api.keyOf(d6) });
+  eq(api.doseOffer(), null, 'nor one that answered "keep"');
+  api.setState([d9], { gap: 12, stock: {}, insulin: 8, doseSeen: api.keyOf(d6) });
+  eq(api.doseOffer(), d9, 'a different change is a new question');
+}
+
+/* ================= constants the app and the Apps Script share =================
+   Nothing else holds these together, and a mismatch is silent: the app says one
+   thing and the morning email another. The app keys by type id, the script by the
+   item's display name, so the real T (not the stub above) translates. */
+{
+  const gs = fs.readFileSync(path.join(__dirname, 'zuse-sync-code.gs.txt'), 'utf8');
+  const lift = (text, decl, name) => {
+    const i = text.indexOf(decl);
+    assert.ok(i !== -1, 'not found: ' + decl);
+    const one = text.slice(i, text.indexOf('\n', i));
+    const src = /;\s*(\/\/.*)?$/.test(one) ? one : text.slice(i, text.indexOf('\n};', i) + 3);
+    return new Function(src + '\n;return ' + name)(); // newline first: a one-line const may end in a // comment
+  };
+  const app = n => lift(js, 'const ' + n + '=', n), scr = n => lift(gs, 'const ' + n + ' = ', n);
+  const realT = app('T'), named = o => JSON.stringify(Object.keys(o).sort().map(k => [realT[k].n, typeof o[k] === 'string' ? realT[o[k]].n : o[k]]));
+  const sorted = o => JSON.stringify(Object.keys(o).sort().map(k => [k, o[k]]));
+  eq(app('LOW_DAYS'), scr('STOCK_LOW_DAYS'), 'LOW_DAYS and STOCK_LOW_DAYS agree');
+  eq(named({ insulin: app('BOTTLE') }), sorted(scr('STOCK_LOW_LEFT')), 'LOW_LEFT and STOCK_LOW_LEFT agree');
+  eq(named(app('PER_SHOT')), sorted(scr('STOCK_PER_ROW')), 'PER_SHOT and STOCK_PER_ROW agree');
+  eq(named(app('FIXED_RATE')), sorted(scr('STOCK_FIXED_RATE')), 'FIXED_RATE and STOCK_FIXED_RATE agree');
+  eq(JSON.stringify(app('VET_REORDER').map(k => realT[k].n).sort()), JSON.stringify(Object.keys(scr('VET_REORDER')).sort()), 'VET_REORDER names the same items on both sides');
+  // every sheet spelling the app understands, the script's stock forecast must read as the same item
+  const aliases = app('TYPE_ALIASES'), known = scr('KNOWN_TYPES');
+  const bad = Object.keys(aliases).filter(k => realT[aliases[k]] && known[k.replace(/[^\x20-\x7E]/g, '').trim()] !== realT[aliases[k]].n);
+  eq(bad.join(), '', 'every TYPE_ALIASES spelling is in KNOWN_TYPES under the same item');
 }
 
 console.log(`\n  ${passed} checks passed\n`);

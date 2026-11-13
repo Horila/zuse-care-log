@@ -12,8 +12,8 @@ and the tests use only Node's stdlib `assert`.
 ## Commands
 
 ```
-node test-logic.js    # pure logic lifted out of zuse-care-log.html (244 checks)
-node test-sync.js     # the Apps Script backend under stubbed Google services (324 checks)
+node test-logic.js    # pure logic lifted out of zuse-care-log.html (289 checks)
+node test-sync.js     # the Apps Script backend under stubbed Google services (250 checks)
 ```
 
 There is no single-test flag. Both files are flat scripts — comment out blocks
@@ -92,7 +92,9 @@ them to copy the address out first and put it back before saving.
 
 ## Constants that must move together
 
-Nothing enforces these across the app/script boundary; a mismatch is silent.
+A mismatch is silent in use (the app says one thing, the morning email another), so
+the last block of `test-logic.js` reads both files and fails when a pair drifts. It
+lifts the real `T`, not the stub, to turn the app's type ids into display names.
 
 | App (`zuse-care-log.html`) | Script (`zuse-sync-code.gs.txt`) | Keyed by |
 |---|---|---|
@@ -131,7 +133,11 @@ needed, since it only changes what the app displays, not what gets emailed.
   `doGet` path, including `writeStockTab_` and `readStockTab_`, runs from the
   *deployed* version and needs the redeploy even when no action is added. Skip it
   and nothing errors: the old code keeps writing the old columns, silently.
-- `doPost` actions: `append`, `report`, `stock`, `skipVetOrder`, `fix`. `doGet`: `list`.
+- `doPost` actions: `append`, `stock`, `skipVetOrder`, `fix`. `doGet`: `list`.
+- The missed-shot trigger runs every 30 minutes (`GRACE_MIN` is 30, so a faster one
+  only ever decides to do nothing). `installReminders` also deletes a leftover
+  `sendMonthlyReport` trigger: the Gemini monthly report was removed on 2026-11-13,
+  and an orphaned trigger would fail on the 1st of every month.
   `doGet` is a one-liner calling `handleGet_`, which lives below the REPLACE cut
   line; a script from before that needs its `doGet` swapped by hand once, or
   `list` never returns `tomb` (nothing errors, deletes just never spread).
@@ -368,7 +374,50 @@ header switches). `const PET` is `'reggie'` there and `''` for Zuse.
   Reggie's Setup on each phone, never committed (this repo is public).
 - Ceiling: Reggie's "Dry Food" rows pull in as notes, since `dry food` is a
   `TYPE_ALIASES` key with no `T.dry`. His Setup still shows the "Open Google Sheet"
-  link and the Monthly report button, which point at Zuse's sheet and e-mail setup.
+  link, which points at Zuse's sheet.
+
+## Health checks (`renderHealth`)
+
+Cards under the hero on Today, each one a tested predicate over the log. The rule
+for all of them: never suggest a dose, never block one (a `confirm` nudge is the
+most any of them does). Zuse only; Reggie's page hides the `hypo` type.
+
+- **Nothing medical or personal is shipped in the code.** The two vet phone
+  numbers (`cfg.vetDay`, `cfg.vetNight`), the rescue steps (`cfg.rescue`) and the
+  weight figure (`cfg.weightDrop`, kg, blank = off) are typed into Setup →
+  Emergency vet on each phone. The repo is public; `test-logic.js` fails if a
+  phone number is written into the app.
+- **Low sugar** (`hypo`, sheet type "Low sugar"). The tile opens `hypoSheet`: the
+  rescue steps, the call buttons, and four signs (`HYPO_SIGNS`). The entry takes
+  the time the card was opened, and every sign tapped while it is open joins that
+  one entry's note (`hypoNote`), because two entries in one minute would share a
+  sync key.
+- **Emergency vet** (`vetButtons`): `tel:` links at the bottom of Today and on the
+  rescue card. The Android app's `shouldOverrideUrlLoading` hands them to the
+  dialler; the cached shell means they work offline.
+- **Weight** (`weightTrend`): the weigh-in card shows the change across the
+  weigh-ins of the last 90 days; the warning compares the latest with the highest
+  in that window, never the all-time high (that would warn for ever).
+- **Did he eat** (`ateOf`, `ateNote`, `setAte`): the answer is a note prefix on the
+  food entry, `ate: all|half|none`, because only the note reaches the sheet. `qty`
+  stays cans put down; stock depends on it. A sync never re-pulls a row it already
+  has, so `adoptAte` copies the answer from the sheet row into the local entry,
+  unless this phone's own edit of that row is still in `fixQ.upd`.
+  Ceiling: that is the only field that spreads this way. Any other same-key edit
+  made on one phone (a note, a quantity, later signs on a `hypo` entry) reaches
+  the sheet but not a phone that already holds the row.
+- **Ketone test** (`ketoneNudge`): two of `sick`/`diarrhea` inside 24 hours with no
+  urine test since the first. `urineVals` reads Ketone and Glucose back out of a
+  urine entry's note for the Trends list; entries from before the labelled form
+  show their note as written.
+- **Dose follows the vet** (`doseOffer`, `useDose`): the newest `dose` entry whose
+  qty differs from `cfg.insulin` is offered as a card; "Use" sets `cfg.insulin` and
+  the routine rows without logging a second `dose` entry, "Keep" records the
+  entry's key in `cfg.doseSeen`. Never applied silently.
+- **Old data** (`staleNote`): the too-soon insulin question adds how long ago this
+  phone last synced, from 30 minutes up. It is not asked on every shot: the
+  open-time sync is usually still in flight when the routine is tapped, and a
+  question that is nearly always a false alarm stops being read.
 
 ## Storage
 
@@ -379,7 +428,7 @@ recordings from the removed vet-audio feature stay readable.
 
 ## Layout of zuse-care-log.html
 
-One ~2945-line file: styles 13–240, markup 242–666, script 667–2943.
+One ~3075-line file: styles 13–240, markup 242–691, script 692–3073.
 
 ## Other files at the root
 
