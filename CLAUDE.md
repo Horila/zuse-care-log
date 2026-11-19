@@ -419,6 +419,25 @@ most any of them does). Zuse only; Reggie's page hides the `hypo` type.
   open-time sync is usually still in flight when the routine is tapped, and a
   question that is nearly always a false alarm stops being read.
 
+## Pet cam (`renderCam`)
+
+A Today card showing the home cameras (petcam on the home server) and the
+current dog's bowl visits today. Display only: visits never become entries or
+reach the sheet, because petcam's dog naming has known misses.
+- Reads `<address>/api/petcam/{status,image,live}`, where the address is Neon's
+  https relay. The page is https, so petcam's own http port would be blocked as
+  mixed content. Images and the MJPEG stream are `<img>` (no CORS needed); the
+  `status` fetch needs Neon's `Access-Control-Allow-Origin: https://horila.github.io`
+  (`PETCAM_CORS` in Neon's `server.py`). Moving the app to another origin breaks it.
+- The address is typed into Setup -> Pet camera and kept in the raw
+  localStorage key `zuse_petcam` (not `cfg`, so both dogs' pages share it, and not
+  in backups). Never commit it: the repo is public, and `test-logic.js` fails if a
+  tailnet name appears in the app. `camBase` accepts https only, no quotes.
+- Still picture (`latest-<cam>.jpg`) by default; the live stream starts only on
+  a tap and stops when the page is hidden or another tab is opened, because each
+  open stream keeps petcam's full-rate decoder running. Refreshes every 60 s while
+  Today is visible. Ceiling: each refresh pulls the whole visit list (up to 1000).
+
 ## Storage
 
 `Store` falls back through `window.storage` → `localStorage` → an in-memory
