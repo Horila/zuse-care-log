@@ -437,6 +437,11 @@ reach the sheet, because petcam's dog naming has known misses.
   a tap and stops when the page is hidden or another tab is opened, because each
   open stream keeps petcam's full-rate decoder running. Refreshes every 60 s while
   Today is visible. Ceiling: each refresh pulls the whole visit list (up to 1000).
+- Pan, listen, talk and snapshots are not rebuilt here: `openCamFull` frames petcam's
+  own page (`<origin>/petcam/`, trailing slash, it uses relative URLs) in `camSheet`
+  with `allow="microphone; autoplay"`. `closeSheet` removes the iframe (stops stream
+  and mic), and hiding the page closes the sheet. Talk in the Android app needs APK
+  3.5+: `onPermissionRequest` grants only the microphone, only to https `*.ts.net`.
 
 ## Storage
 

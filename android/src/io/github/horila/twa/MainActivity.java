@@ -16,6 +16,7 @@ import android.webkit.GeolocationPermissions;
 import android.webkit.JavascriptInterface;
 import android.webkit.JsPromptResult;
 import android.webkit.JsResult;
+import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
@@ -33,7 +34,7 @@ import java.nio.charset.StandardCharsets;
 public class MainActivity extends Activity {
     static final String APP = "https://horila.github.io/zuse-care-log/";
     static final String START = APP + "zuse-care-log.html";
-    static final int REQ_FILE = 1, REQ_LOC = 2, REQ_NOTIF = 3, REQ_STORAGE = 4, REQ_WALK = 5;
+    static final int REQ_FILE = 1, REQ_LOC = 2, REQ_NOTIF = 3, REQ_STORAGE = 4, REQ_WALK = 5, REQ_MIC = 6;
     static volatile MainActivity live; // the page WalkService pokes when a walk ends
 
     WebView web;
@@ -42,6 +43,7 @@ public class MainActivity extends Activity {
     GeolocationPermissions.Callback geoCb;
     String geoOrigin;
     String walkJson;
+    PermissionRequest micReq; // the pet cam page's talk button, waiting on the runtime prompt
 
     @Override protected void onCreate(Bundle saved) {
         super.onCreate(saved);
@@ -163,6 +165,20 @@ public class MainActivity extends Activity {
             catch (Exception e) { fileCb = null; cb.onReceiveValue(null); return false; }
             return true;
         }
+        // Microphone for the pet cam's talk button only: the home server's own page on a Tailscale
+        // https name, framed by the app. Everything else (camera, other sites) is refused.
+        @Override public void onPermissionRequest(PermissionRequest r) {
+            Uri o = r.getOrigin();
+            boolean mic = false;
+            for (String x : r.getResources()) mic |= PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(x);
+            if (!mic || o == null || !"https".equals(o.getScheme()) || o.getHost() == null || !o.getHost().endsWith(".ts.net")) { r.deny(); return; }
+            String[] grant = {PermissionRequest.RESOURCE_AUDIO_CAPTURE};
+            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) { r.grant(grant); return; }
+            if (micReq != null) micReq.deny();
+            micReq = r;
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_MIC);
+        }
+        @Override public void onPermissionRequestCanceled(PermissionRequest r) { if (r == micReq) micReq = null; }
         @Override public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback cb) {
             if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
                     || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
@@ -193,6 +209,11 @@ public class MainActivity extends Activity {
             for (int r : res) ok |= r == PackageManager.PERMISSION_GRANTED;
             geoCb.invoke(geoOrigin, ok, false);
             geoCb = null;
+        }
+        if (req == REQ_MIC && micReq != null) {
+            if (res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED) micReq.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
+            else micReq.deny();
+            micReq = null;
         }
         if (req == REQ_WALK && walkJson != null) {
             for (int r : res) if (r == PackageManager.PERMISSION_GRANTED) {

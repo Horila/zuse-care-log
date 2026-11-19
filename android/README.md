@@ -38,7 +38,7 @@ not your upload key: sideloading over it will fail; upload this build to Play in
 ## Versions
 
 Bump `--version-code` (and `--version-name`) in `build.sh` on every release you install.
-Android refuses a lower versionCode than the installed one. Current: versionCode 7, "3.4". `version()` in
+Android refuses a lower versionCode than the installed one. Current: versionCode 8, "3.5". `version()` in
 `MainActivity.java` returns the same name; keep them together.
 
 ## Your data

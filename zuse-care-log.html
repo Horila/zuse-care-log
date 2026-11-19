@@ -705,6 +705,16 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
   <div id="walkMap"></div>
 </div>
 
+<div class="sheet" id="camSheet">
+  <div class="grab"></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px">
+    <h2 style="margin:0;font-size:16px">Pet cam</h2>
+    <a class="note" id="camOut" target="_blank" rel="noopener">Open in browser</a>
+    <button class="btn sec" style="width:auto;margin:0;padding:9px 14px" onclick="closeSheet()">Close</button>
+  </div>
+  <div id="camFull"></div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -2505,10 +2515,20 @@ async function renderCam(){
   const list=camDrinks(camData.visits,PET||'zuse',iso(new Date())).filter(v=>/^visits\/[\w-]+\.jpg$/.test(v.photo));
   $('camNote').textContent=`${list.length} drink${list.length===1?'':'s'} today`;
   $('camVisits').innerHTML=list.slice(0,12).map(v=>`<button class="pill" style="margin:0 6px 6px 0" onclick="camShow('${esc(v.photo)}')">💧 ${esc(String(v.start).slice(11,16))} · ${+v.seconds||0}s</button>`).join('')+
-    `<a class="note" style="display:block;margin-top:4px" href="${esc(new URL(b).origin)}/petcam/" target="_blank" rel="noopener">Full viewer: snapshots, other days, both dogs</a>`;
+    `<button class="btn sec" style="margin-top:6px" onclick="openCamFull()">🎛 Pan, listen, talk, snapshots</button>`;
 }
+// petcam's own page (/petcam/ on the same host) in a frame: its pan, sound and talk run on its own origin,
+// so they need no CORS here and follow petcam's changes. Removed on close, so the stream and the mic stop.
+function camFullUrl(){const b=camAddr();return b?new URL(b).origin+'/petcam/':''}
+function openCamFull(){
+  const u=camFullUrl();if(!u)return;camLive(false);
+  const f=document.createElement('iframe');f.src=u;f.allow='microphone; autoplay';
+  f.style.cssText='width:100%;height:calc(88vh - 90px);border:0;border-radius:12px;background:var(--surf2)';
+  document.getElementById('camFull').replaceChildren(f);document.getElementById('camOut').href=u;openSheet('camSheet');
+}
+function closeCamFull(){document.getElementById('camFull').replaceChildren()}
 setInterval(renderCam,60000);
-document.addEventListener('visibilitychange',()=>{if(document.hidden)camLive(false);else renderCam()});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){camLive(false);if(document.getElementById('camFull').firstChild)closeSheet()}else renderCam()});
 document.addEventListener('change',ev=>{
   if(ev.target.id!=='sCam')return;
   const v=camBase(ev.target.value);if(ev.target.value.trim()&&!v){toast('Needs an https:// address');return}
@@ -2767,6 +2787,7 @@ function closeSheet(){
   document.getElementById('featuresSheet').classList.remove('on');
   document.getElementById('typeSheet').classList.remove('on');
   document.getElementById('mapSheet').classList.remove('on');clearInterval(mapPoll);mapPoll=null;mapGen++;
+  document.getElementById('camSheet').classList.remove('on');closeCamFull();
 }
 function saveEntry(){
   const o={type:document.getElementById('fType').value,
