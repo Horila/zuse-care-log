@@ -69,6 +69,7 @@ const code = [
   grab('notifPlan'),
   grab('staleNote'), grab('ateOf'), grab('ateNote'), grab('lastMeal'), grab('adoptAte'), grab('ketoneNudge'), grab('urineVals'),
   grab('weightTrend'), grab('doseOffer'), grabConst('telHref'), grab('vetButtons'), grab('hypoNote'),
+  grab('camBase'), grab('camDrinks'),
 ].join('\n');
 
 // The extracted code reads free variables `entries` and `cfg`; bind them by
@@ -79,7 +80,7 @@ const api = new Function('T', 'esc', 'TYPE_ALIASES',
   'trackedStock,stockSame,mergeStockRow,lowStock,stockLabel,series,vetSummary,syncErr,isoBack,' +
   'syncPull,syncPush,applyTombs,currentRoutine,routineDone,forget,revive,queueUpd,sheetNote,carerOf,typeKeyFromSheetType,' +
   'extractQty,LOGGABLE,keyOf,cleanType,customKey,nameClash,mergeCustomTypes,adoptSrcType,notifPlan,' +
-  'staleNote,ateOf,ateNote,lastMeal,adoptAte,ketoneNudge,urineVals,weightTrend,doseOffer,vetButtons,hypoNote,' +
+  'staleNote,ateOf,ateNote,lastMeal,adoptAte,ketoneNudge,urineVals,weightTrend,doseOffer,vetButtons,hypoNote,camBase,camDrinks,' +
   'setWin:w=>{stockWin=w},setState:(e,c)=>{entries=e;cfg=c},getState:()=>({entries,cfg})};')(T, esc, TYPE_ALIASES);
 
 const DAY = 864e5;
@@ -800,6 +801,20 @@ const on = (d, hhmm) => new Date(`${d}T${hhmm || '12:00'}:00`);
   api.setState([], { gap: 12, stock: {} });
   eq(api.vetButtons(), '', 'no numbers, no buttons');
   ok(!/\b0\d{3,4} ?\d{3} ?\d{3,4}\b/.test(js.replace(/placeholder="[^"]*"/g, '')), 'and no phone number is written into the app itself');
+}
+
+/* ---- pet cam: an https address only, and today's drinks for this dog ---- */
+{
+  eq(api.camBase(' https://h.example.ts.net/neon/ '), 'https://h.example.ts.net/neon', 'address trimmed, trailing slash dropped');
+  eq(api.camBase('http://100.1.2.3:8099'), '', 'plain http is refused: the https page would block it anyway');
+  eq(api.camBase('https://x/"onerror=alert(1)'), '', 'no quotes, so it is safe inside an href');
+  eq(api.camBase(''), '', 'blank is blank');
+  const v = [{ dog: 'Zuse', start: '2026-11-19T13:21:11' }, { dog: 'Reggie', start: '2026-11-19T12:54:19' },
+             { dog: 'Zuse', start: '2026-11-18T23:59:50' }, { dog: 'zuse', start: '2026-11-19T00:00:05' }];
+  eq(api.camDrinks(v, 'zuse', '2026-11-19').length, 2, "Zuse's drinks today only, any case");
+  eq(api.camDrinks(v, 'reggie', '2026-11-19').length, 1, "Reggie's page counts Reggie's");
+  eq(api.camDrinks(undefined, 'zuse', '2026-11-19').length, 0, 'no visit list, no drinks');
+  ok(!/tail[a-z0-9]+\.ts\.net/.test(js), 'and the tailnet address is not written into the app itself');
 }
 
 /* ---- weight: a trailing 90-day high, tested on his real weigh-ins ---- */

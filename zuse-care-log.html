@@ -336,6 +336,17 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
     <div class="cards" id="glance"></div>
   </section>
 
+  <section id="camSec" style="display:none">
+    <div class="shead"><h2>Pet cam</h2><span class="note" id="camNote"></span></div>
+    <div class="pillrow" id="camPick" style="margin-bottom:9px"></div>
+    <div class="card" style="padding:0;overflow:hidden;position:relative">
+      <img id="camImg" alt="Pet camera picture" style="display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:var(--surf2)">
+      <button class="pill" id="camLiveBtn" style="position:absolute;right:8px;bottom:8px" onclick="camLive(!camOn)">▶ Live</button>
+    </div>
+    <p class="note" id="camWhere" style="margin-top:8px"></p>
+    <div id="camVisits"></div>
+  </section>
+
   <section id="vetSec">
     <div class="shead"><h2>Emergency vet</h2></div>
     <div id="vetCard"></div>
@@ -438,6 +449,13 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
       <div class="fld zonly"><label>Low sugar: what to do (your vet's words)</label><textarea id="sRescue" rows="4" placeholder="Ask your vet what to do when his sugar drops, and type it here. It shows on the Low sugar card."></textarea></div>
       <div class="fld zonly"><label>Warn when he is down this many kg (from his highest in 90 days)</label><input id="sWeightDrop" type="number" step="0.1" min="0" inputmode="decimal" placeholder="blank = no warning"></div>
       <p class="note">The numbers show as call buttons at the bottom of Today and on the Low sugar card, and work with no signal. All of this stays on this phone: type it in on each phone.</p>
+    </div>
+  </section>
+  <section>
+    <div class="shead"><h2>Pet camera</h2></div>
+    <div class="card">
+      <div class="fld" style="margin-bottom:0"><label>Camera address (https)</label><input id="sCam" type="url" inputmode="url" placeholder="https://…/neon"></div>
+      <p class="note" style="margin-top:8px">The Pet cam card on Today shows the home cameras and today's bowl visits. It only loads on a phone connected to the home network. Blank hides the card. Stays on this phone, shared by both dogs.</p>
     </div>
   </section>
   <section>
@@ -2407,6 +2425,7 @@ function renderSettings(){
   document.getElementById('sPm').value=cfg.pmTime;
   document.getElementById('sGap').value=cfg.gap;
   document.getElementById('sCarer').value=cfg.carer||'';
+  try{document.getElementById('sCam').value=localStorage.getItem('zuse_petcam')||''}catch(e){}
   [['sVetDay','vetDay'],['sVetNight','vetNight'],['sRescue','rescue'],['sWeightDrop','weightDrop']].forEach(([id,k])=>document.getElementById(id).value=cfg[k]||'');
   document.getElementById('homeStatus').textContent=cfg.homeLat!=null?`Set — ${cfg.homeLat.toFixed(5)}, ${cfg.homeLon.toFixed(5)} ${cfg.homeAcc!=null?`(±${cfg.homeAcc}m)`:'(accuracy unknown — re-set it)'}`:'Not set.';
   document.getElementById('sSyncUrl').value=cfg.syncUrl||'';
@@ -2448,6 +2467,53 @@ document.addEventListener('change',ev=>{
   const m={sVetDay:'vetDay',sVetNight:'vetNight',sRescue:'rescue',sWeightDrop:'weightDrop'}[ev.target.id];
   if(!m)return;
   cfg[m]=ev.target.value.trim();saveCfg();renderAll();toast('Saved');
+});
+
+/* ---------------- pet camera ----------------
+   petcam on the home server, read through Neon's https relay (the page is https, so the http recorder
+   is blocked as mixed content; Neon sends CORS for this origin). Display only: visits never become
+   entries or reach the sheet, because the dog naming has known misses. The address is one raw
+   localStorage key, so both dogs' pages share it; the repo is public, so it is typed in, never shipped. */
+function camBase(s){s=String(s||'').trim().replace(/\/+$/,'');return /^https:\/\/[^\s/?#"'<>]+(\/[^\s?#"'<>]*)?$/.test(s)?s:''}
+function camDrinks(visits,dog,day){return (visits||[]).filter(v=>String(v.dog||'').toLowerCase()===dog&&String(v.start||'').slice(0,10)===day)}
+let camSel='',camOn=false,camData=null;
+function camAddr(){try{return camBase(localStorage.getItem('zuse_petcam'))}catch(e){return ''}}
+const camName=s=>String(s).replace(/-/g,' ').replace(/^./,c=>c.toUpperCase());
+function camLive(on){
+  const b=camAddr(),img=document.getElementById('camImg');camOn=!!(on&&b&&camSel);
+  document.getElementById('camLiveBtn').textContent=camOn?'■ Stop':'▶ Live';
+  // the stream is 720p at 15 fps and keeps the recorder's full-rate decoder running, so only on a tap
+  if(camOn)img.src=b+'/api/petcam/live?cam='+encodeURIComponent(camSel);
+  else if(b&&camSel)img.src=b+'/api/petcam/image?f=latest-'+encodeURIComponent(camSel)+'.jpg&t='+Date.now();
+  else img.removeAttribute('src');
+}
+function camShow(f){const b=camAddr();if(!b)return;camLive(false);document.getElementById('camImg').src=b+'/api/petcam/image?f='+encodeURIComponent(f)}
+async function renderCam(){
+  const b=camAddr(),$=id=>document.getElementById(id);
+  $('camSec').style.display=b?'':'none';
+  if(!b){camLive(false);return}
+  if(document.hidden||!$('v-today').classList.contains('on'))return;
+  // ponytail: fetches the whole visit list (up to 1000 rows) each minute; ask petcam for one day if data use matters
+  try{const r=await fetch(b+'/api/petcam/status',{cache:'no-store'});if(!r.ok)throw 0;camData=await r.json()}catch(e){camData=null}
+  if(!camData){camSel='';camLive(false);$('camNote').textContent='camera unreachable';$('camPick').innerHTML='';$('camVisits').innerHTML='';
+    $('camWhere').textContent='Needs this phone on the home network (Tailscale), and the recorder running.';return}
+  const cams=(camData.cameras||[]).map(c=>c.name).filter(c=>/^[a-z0-9-]+$/.test(c));
+  if(!cams.includes(camSel)){camSel=cams[0]||'';camLive(false)}else if(!camOn)camLive(false);
+  $('camPick').innerHTML=cams.map(c=>`<button class="pill${c===camSel?' on':''}" onclick="camSel='${esc(c)}';camLive(camOn);renderCam()">${esc(camName(c))}</button>`).join('');
+  $('camWhere').textContent=Object.entries(camData.where||{}).map(([d,w])=>{const a=Math.round(w.age||0);
+    return `${d}: ${camName(w.camera||'')}, ${a<90?a+' s':a<5400?Math.round(a/60)+' min':Math.round(a/3600)+' h'} ago`}).join(' · ');
+  const list=camDrinks(camData.visits,PET||'zuse',iso(new Date())).filter(v=>/^visits\/[\w-]+\.jpg$/.test(v.photo));
+  $('camNote').textContent=`${list.length} drink${list.length===1?'':'s'} today`;
+  $('camVisits').innerHTML=list.slice(0,12).map(v=>`<button class="pill" style="margin:0 6px 6px 0" onclick="camShow('${esc(v.photo)}')">💧 ${esc(String(v.start).slice(11,16))} · ${+v.seconds||0}s</button>`).join('')+
+    `<a class="note" style="display:block;margin-top:4px" href="${esc(b)}/#petcam" target="_blank" rel="noopener">Full viewer: snapshots, other days, both dogs</a>`;
+}
+setInterval(renderCam,60000);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)camLive(false);else renderCam()});
+document.addEventListener('change',ev=>{
+  if(ev.target.id!=='sCam')return;
+  const v=camBase(ev.target.value);if(ev.target.value.trim()&&!v){toast('Needs an https:// address');return}
+  try{v?localStorage.setItem('zuse_petcam',v):localStorage.removeItem('zuse_petcam')}catch(e){}
+  ev.target.value=v;camSel='';renderCam();toast('Saved');
 });
 
 /* ---------------- Google Sheet sync ---------------- */
@@ -2811,6 +2877,7 @@ function nav(v){
   if(v==='hist'){renderFilters();renderHist()}
   if(v==='trend')renderCharts();
   if(v==='stock')renderStockAll();
+  if(v==='today')renderCam();else if(camOn)camLive(false);
   if(v==='set')renderSettings();
   if(v==='today'&&dayOffset!==0){dayOffset=0;renderToday()}
 }
@@ -3054,7 +3121,7 @@ function tick(){
   applyTheme();renderWakeBtn();if(cfg.wakeOn)acquireWake();
   tileGrid(document.getElementById('quick'),PET?REGGIE_QUICK.filter(s=>T[s[0]]&&!T[s[0]].h):QUICK);
   renderAllTypes();
-  renderAll();renderWalkBar();renderVetBar();takeNative();if(walkState)armWalkAutoEnd();
+  renderAll();renderCam();renderWalkBar();renderVetBar();takeNative();if(walkState)armWalkAutoEnd();
   if(vetState){openVetSheet();toast('Vet visit resumed');}
   tick();setInterval(tick,20000);
   if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
