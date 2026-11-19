@@ -2505,7 +2505,7 @@ async function renderCam(){
   const list=camDrinks(camData.visits,PET||'zuse',iso(new Date())).filter(v=>/^visits\/[\w-]+\.jpg$/.test(v.photo));
   $('camNote').textContent=`${list.length} drink${list.length===1?'':'s'} today`;
   $('camVisits').innerHTML=list.slice(0,12).map(v=>`<button class="pill" style="margin:0 6px 6px 0" onclick="camShow('${esc(v.photo)}')">💧 ${esc(String(v.start).slice(11,16))} · ${+v.seconds||0}s</button>`).join('')+
-    `<a class="note" style="display:block;margin-top:4px" href="${esc(b)}/#petcam" target="_blank" rel="noopener">Full viewer: snapshots, other days, both dogs</a>`;
+    `<a class="note" style="display:block;margin-top:4px" href="${esc(new URL(b).origin)}/petcam/" target="_blank" rel="noopener">Full viewer: snapshots, other days, both dogs</a>`;
 }
 setInterval(renderCam,60000);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)camLive(false);else renderCam()});
